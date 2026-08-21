@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft, ChevronUp, ChevronDown, Copy, Trash2, Pencil, Plus, Eye, EyeOff,
-  Link2, Printer, Settings2, Check, Loader2, Cloud, Receipt,
+  Link2, Printer, Settings2, Check, Loader2, Cloud, Receipt, FileText, FileType,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { tone } from "@/lib/colors";
@@ -165,8 +165,16 @@ export function ProposalEditor({
           <button onClick={copyLink} className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent" title="Copiar enlace del cliente">
             {copied ? <Check className="size-4 text-emerald-600" /> : <Link2 className="size-4" />} <span className="hidden sm:inline">{copied ? "Copiado" : "Enlace"}</span>
           </button>
-          <a href={`/cotizaciones/propuestas/${id}/imprimir`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent" title="Imprimir / PDF">
+          <a href={`/cotizaciones/propuestas/${id}/imprimir`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent" title="PDF con el diseño de la propuesta">
             <Printer className="size-4" /> <span className="hidden sm:inline">PDF</span>
+          </a>
+          {/* Documento formal (solo texto): la versión sobria para adjuntar por correo o pasar a
+              jurídica. «Documento» abre la hoja imprimible (→ PDF); «Word» la descarga en .doc. */}
+          <a href={`/cotizaciones/propuestas/${id}/documento`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent" title="Documento formal (solo texto) — imprimir o guardar como PDF">
+            <FileText className="size-4" /> <span className="hidden sm:inline">Documento</span>
+          </a>
+          <a href={`/api/proposal-doc/${id}`} className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent" title="Descargar el documento formal en Word (.doc)">
+            <FileType className="size-4" /> <span className="hidden sm:inline">Word</span>
           </a>
           <button onClick={() => setShowSettings((s) => !s)} className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent" title="Ajustes">
             <Settings2 className="size-4" />
