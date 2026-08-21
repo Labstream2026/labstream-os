@@ -1,5 +1,72 @@
 import sharp from "sharp";
+import { spawn } from "node:child_process";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import fs from "node:fs/promises";
+import crypto from "node:crypto";
 import { saveBuffer, writeRelBuffer } from "@/lib/storage";
+
+// ── Respaldo HEIC/HEIF con FFmpeg ──────────────────────────────────────────────
+// El binario prebuilt de sharp (libvips) del NAS NO decodifica HEIC/HEVC (quitado por licencias):
+// solo AVIF. Pero HEIC es el formato POR DEFECTO del iPhone, así que sin esto las fotos del cliente
+// salían ROTAS en la galería. FFmpeg —que YA está en la imagen (Dockerfile) y decodifica HEVC de
+// serie— hace de puente: cuando sharp falla y el buffer es HEIF, se decodifica a JPEG con FFmpeg y
+// sharp termina el WebP. El demuxer HEIF necesita entrada SEEKABLE, por eso va por archivo temporal
+// y no por stdin.
+const FFMPEG = process.env.FFMPEG_BIN || "ffmpeg";
+const FFMPEG_MS = 20_000;
+
+// ¿El buffer es de la familia HEIF (heic/heix/mif1…)? Caja `ftyp` con marca conocida.
+function esHeif(buf: Buffer): boolean {
+  if (buf.length < 12) return false;
+  if (buf.toString("ascii", 4, 8) !== "ftyp") return false;
+  const marca = buf.toString("ascii", 8, 12).toLowerCase();
+  return ["heic", "heix", "heim", "heis", "hevc", "hevx", "mif1", "msf1", "heif"].includes(marca);
+}
+
+// Decodifica un HEIC/HEIF a JPEG con FFmpeg. Devuelve null si no se pudo (FFmpeg ausente, archivo
+// raro, timeout). Escribe un temporal, lo lee FFmpeg y saca el primer (único) fotograma a stdout.
+async function heifAJpeg(buf: Buffer): Promise<Buffer | null> {
+  const tmp = path.join(tmpdir(), `ls-heic-${crypto.randomUUID()}.heic`);
+  try {
+    await fs.writeFile(tmp, buf);
+  } catch {
+    return null;
+  }
+  try {
+    return await new Promise<Buffer | null>((resolve) => {
+      const p = spawn(
+        FFMPEG,
+        ["-hide_banner", "-loglevel", "error", "-nostdin", "-i", tmp, "-an", "-sn", "-dn", "-frames:v", "1", "-f", "image2", "-c:v", "mjpeg", "-q:v", "2", "pipe:1"],
+        { stdio: ["ignore", "pipe", "ignore"] },
+      );
+      const trozos: Buffer[] = [];
+      let cerrado = false;
+      const corte = setTimeout(() => {
+        cerrado = true;
+        p.kill("SIGKILL");
+        resolve(null);
+      }, FFMPEG_MS);
+      p.stdout.on("data", (d: Buffer) => trozos.push(d));
+      p.on("error", () => {
+        clearTimeout(corte);
+        if (!cerrado) {
+          cerrado = true;
+          resolve(null);
+        }
+      });
+      p.on("close", () => {
+        clearTimeout(corte);
+        if (cerrado) return;
+        cerrado = true;
+        const out = Buffer.concat(trozos);
+        resolve(out.length > 0 ? out : null);
+      });
+    });
+  } finally {
+    await fs.unlink(tmp).catch(() => {});
+  }
+}
 
 // Ajuste de MEMORIA para el NAS. Por defecto sharp (libvips) usa un hilo por núcleo y mantiene
 // una caché en RAM; con varias subidas a la vez (o una foto grande/HEIC) el pico de RSS se
@@ -56,16 +123,31 @@ export function isOptimizableImage(name: string, mime?: string | null): boolean 
 // si no, se redimensiona conservando proporción (lado largo ≤ maxEdge).
 export type OptimizeOpts = { maxEdge?: number; quality?: number; crop?: { width: number; height: number } };
 
+async function webpDeBuffer(buf: Buffer, opts?: OptimizeOpts): Promise<Buffer> {
+  const pipeline = sharp(buf, { failOn: "none", animated: !opts?.crop }).rotate();
+  if (opts?.crop) {
+    pipeline.resize({ width: opts.crop.width, height: opts.crop.height, fit: "cover", position: "attention" });
+  } else {
+    pipeline.resize({ width: opts?.maxEdge ?? MAX_EDGE, height: opts?.maxEdge ?? MAX_EDGE, fit: "inside", withoutEnlargement: true });
+  }
+  return pipeline.webp({ quality: opts?.quality ?? WEBP_QUALITY }).toBuffer();
+}
+
 export async function optimizeToWebp(buf: Buffer, opts?: OptimizeOpts): Promise<Buffer | null> {
   try {
-    const pipeline = sharp(buf, { failOn: "none", animated: !opts?.crop }).rotate();
-    if (opts?.crop) {
-      pipeline.resize({ width: opts.crop.width, height: opts.crop.height, fit: "cover", position: "attention" });
-    } else {
-      pipeline.resize({ width: opts?.maxEdge ?? MAX_EDGE, height: opts?.maxEdge ?? MAX_EDGE, fit: "inside", withoutEnlargement: true });
-    }
-    return await pipeline.webp({ quality: opts?.quality ?? WEBP_QUALITY }).toBuffer();
+    return await webpDeBuffer(buf, opts);
   } catch {
+    // sharp no pudo. Si es HEIC/HEIF (iPhone), decodificar con FFmpeg y reintentar sobre el JPEG.
+    if (esHeif(buf)) {
+      const jpeg = await heifAJpeg(buf);
+      if (jpeg) {
+        try {
+          return await webpDeBuffer(jpeg, opts);
+        } catch {
+          return null;
+        }
+      }
+    }
     return null;
   }
 }
