@@ -18,7 +18,9 @@ export type BlockType =
   | "calendar"
   | "timeline"
   | "pricing"
+  | "planes"
   | "budget"
+  | "entregables"
   | "video"
   | "checks"
   | "cta";
@@ -85,7 +87,9 @@ export const BLOCK_LABELS: Record<BlockType, string> = {
   calendar: "Calendario",
   timeline: "Cronograma",
   pricing: "Inversión",
+  planes: "Planes",
   budget: "Desglose",
+  entregables: "Entregables",
   video: "Video",
   checks: "Lista de ✓",
   cta: "Cierre",
@@ -173,6 +177,30 @@ export function newBlock(type: BlockType, brandEmail = BRAND_DEFAULT.email): Blo
         rows: [{ c: "Concepto", d: "Detalle.", p: "$" }],
         total: "A convenir",
         note: "Valores antes de IVA.",
+      };
+    case "planes":
+      // Los 3 planes en columna (Esencial/Crecimiento/Marca). El precio es TEXTO libre
+      // (ya formateado): así sirve igual para «/mes», «por evento» o «a convenir».
+      return {
+        type,
+        title: "Elige tu plan",
+        items: [
+          { nombre: "Esencial", precio: "$1.300.000", unidad: "/mes", destacado: false, incluye: ["4 Reels", "4 posts", "Community básico"] },
+          { nombre: "Crecimiento", precio: "$2.100.000", unidad: "/mes", destacado: true, incluye: ["8 Reels", "8 posts", "1 jornada de rodaje"] },
+          { nombre: "Marca", precio: "$3.000.000", unidad: "/mes", destacado: false, incluye: ["12 Reels", "12 posts", "Reporte mensual"] },
+        ],
+        nota: "Valores antes de IVA.",
+      };
+    case "entregables":
+      // Lo que nos comprometemos a entregar (cantidad · qué · detalle). Es estructurado a
+      // propósito: al aceptar la propuesta se copian al proyecto y alimentan el documento formal.
+      return {
+        type,
+        title: "Entregables",
+        items: [
+          { q: "8", t: "Reels al mes", d: "Guion, rodaje y edición, listos para publicar." },
+          { q: "1", t: "Jornada de rodaje", d: "Un día al mes graba todo el contenido." },
+        ],
       };
     case "budget":
       return {

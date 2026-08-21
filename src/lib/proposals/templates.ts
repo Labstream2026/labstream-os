@@ -399,7 +399,7 @@ export const TEMPLATES: TemplateDef[] = [
     key: "documental_causa",
     icon: "⛰️",
     name: "Documental de causa",
-    desc: "Cobertura y pieza documental para fundaciones, territorios y causas. Deck a pantalla completa.",
+    desc: "Cobertura y pieza documental para fundaciones, territorios y causas.",
     build: (a) => {
       const cliente = plain(a.cliente, "la organización");
       const publico = plain(a.publico, "sus aliados y comunidades");

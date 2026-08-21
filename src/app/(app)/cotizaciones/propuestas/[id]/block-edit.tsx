@@ -241,6 +241,44 @@ function PlanEditor({ block, patch }: { block: Block; patch: (k: string, v: unkn
   );
 }
 
+// Editor de los PLANES (3 columnas). Cada plan: nombre, precio (texto libre ya formateado),
+// unidad, la lista «incluye» y si es el destacado. «Destacado» es exclusivo: marcar uno apaga
+// los demás (un solo plan recomendado).
+function PlanesEditor({ block, patch }: { block: Block; patch: (k: string, v: unknown) => void }) {
+  const planes = (Array.isArray(block.items) ? block.items : []) as Record<string, unknown>[];
+  const set = (i: number, key: string, v: unknown) => patch("items", planes.map((p, idx) => (idx === i ? { ...p, [key]: v } : p)));
+  const toggleDest = (i: number, on: boolean) => patch("items", planes.map((p, idx) => ({ ...p, destacado: idx === i ? on : on ? false : !!p.destacado })));
+  const remove = (i: number) => patch("items", planes.filter((_, idx) => idx !== i));
+  const add = () => patch("items", [...planes, { nombre: "Nuevo plan", precio: "$", unidad: "/mes", destacado: false, incluye: ["Beneficio"] }]);
+  return (
+    <div className="space-y-3">
+      <Field label="Título" value={String(block.title || "")} onChange={(v) => patch("title", v)} />
+      <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
+        {planes.map((p, i) => (
+          <div key={i} className="space-y-2 rounded-lg border border-border bg-muted/20 p-2.5">
+            <Field label="Nombre" value={String(p.nombre ?? "")} onChange={(v) => set(i, "nombre", v)} />
+            <div className="grid grid-cols-2 gap-2">
+              <Field label="Precio" value={String(p.precio ?? "")} onChange={(v) => set(i, "precio", v)} />
+              <Field label="Unidad" value={String(p.unidad ?? "")} onChange={(v) => set(i, "unidad", v)} />
+            </div>
+            <div>
+              <span className="mb-1 block text-xs font-medium text-muted-foreground">Incluye</span>
+              <StrList items={(Array.isArray(p.incluye) ? p.incluye : []) as string[]} onChange={(it) => set(i, "incluye", it)} addLabel="Añadir línea" />
+            </div>
+            <label className="flex items-center gap-2 text-xs text-muted-foreground">
+              <input type="checkbox" checked={!!p.destacado} onChange={(e) => toggleDest(i, e.target.checked)} className="size-4 rounded border-input accent-primary" />
+              Plan recomendado (destacado)
+            </label>
+            <button onClick={() => remove(i)} className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-destructive"><Trash2 className="size-3.5" /> Quitar plan</button>
+          </div>
+        ))}
+      </div>
+      <button onClick={add} className="inline-flex items-center gap-1.5 rounded-md border border-dashed border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-accent"><Plus className="size-3.5" /> Añadir plan</button>
+      <Field label="Nota al pie" value={String(block.nota || "")} onChange={(v) => patch("nota", v)} />
+    </div>
+  );
+}
+
 // Lista de marcas del bloque «Logos»: nombre + imagen de la biblioteca. Acepta el formato
 // viejo (un array de textos) y lo normaliza al editar, sin tocar la base de datos.
 function LogoList({ items, onChange }: { items: unknown[]; onChange: (items: Record<string, unknown>[]) => void }) {
@@ -268,14 +306,15 @@ function LogoList({ items, onChange }: { items: unknown[]; onChange: (items: Rec
   );
 }
 
-// Fondo y tono de la diapositiva — lo usa el tema «Cine». Va plegado para no estorbar a quien
-// solo viene a cambiar un texto, y se abre solo si el bloque ya tiene fondo o tono propios.
+// Fondo y tono del bloque: etiqueta superior, tono claro/oscuro y fondo de imagen o video en
+// loop. Va plegado para no estorbar a quien solo viene a cambiar un texto, y se abre solo si el
+// bloque ya tiene fondo, tono o kicker propios.
 function CineStyle({ block, patch }: { block: Block; patch: (k: string, v: unknown) => void }) {
   const tone = String(block.tone || "");
   const hasStyle = !!block.bgVideo || !!block.bg || !!tone || !!block.kicker;
   return (
     <details open={hasStyle} className="rounded-lg border border-border bg-muted/20 p-2.5">
-      <summary className="cursor-pointer text-xs font-medium text-muted-foreground">🎬 Fondo y estilo de la diapositiva</summary>
+      <summary className="cursor-pointer text-xs font-medium text-muted-foreground">🎬 Fondo y estilo del bloque</summary>
       <div className="mt-2.5 space-y-3">
         <Field label="Etiqueta superior (kicker)" value={String(block.kicker || "")} onChange={(v) => patch("kicker", v)} />
         <label className="block text-sm">
@@ -401,6 +440,24 @@ function BlockFields({
       );
     case "plan":
       return <PlanEditor block={block} patch={patch} />;
+    case "planes":
+      return <PlanesEditor block={block} patch={patch} />;
+    case "entregables":
+      return (
+        <div className="space-y-3">
+          <Field label="Título" value={String(block.title || "")} onChange={(v) => patch("title", v)} />
+          <ObjList
+            items={items}
+            onChange={(it) => patch("items", it)}
+            addLabel="Añadir entregable"
+            blank={{ q: "1", t: "Entregable", d: "Detalle." }}
+            fields={[{ key: "q", label: "Cantidad" }, { key: "t", label: "Qué" }, { key: "d", label: "Detalle", area: true }]}
+          />
+          <p className="rounded-md border border-primary/20 bg-primary/5 px-2.5 py-2 text-[11px] text-muted-foreground">
+            🔗 Al aceptar la propuesta, estos entregables se copiarán al proyecto vinculado como tareas del equipo.
+          </p>
+        </div>
+      );
     case "calendar":
       return (
         <div className="space-y-3">

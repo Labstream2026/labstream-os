@@ -493,6 +493,66 @@ function BlockView({ block, brand, first }: { block: Block; brand: Brand; first?
           </div>
         </Shell>
       );
+    case "planes": {
+      const planes = arr<{ nombre?: string; precio?: string; unidad?: string; destacado?: boolean; incluye?: unknown }>(block.items);
+      return (
+        <Shell bg={bg} video={video} dark={dark} first={first}>
+          {kicker ? <Eyebrow color={c.accent}>{kicker}</Eyebrow> : null}
+          {str(block.title) ? <Titulo color={c.title}>{str(block.title)}</Titulo> : null}
+          <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-3">
+            {planes.map((p, i) => {
+              const dest = !!p.destacado;
+              return (
+                <div
+                  key={i}
+                  className="relative rounded-2xl border p-5"
+                  style={{
+                    background: c.cardBg,
+                    borderColor: dest ? accent : c.cardBorder,
+                    boxShadow: dest ? `0 0 0 1px ${accent}, 0 12px 32px rgba(20,20,25,.07)` : onDark ? undefined : "0 1px 2px rgba(20,20,25,.04), 0 12px 32px rgba(20,20,25,.05)",
+                  }}
+                >
+                  {dest ? <span className="absolute -top-2.5 left-1/2 -translate-x-1/2 rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase text-white" style={{ background: accent, letterSpacing: "0.06em" }}>Recomendado</span> : null}
+                  <h3 className="text-[1.25rem]" style={{ fontFamily: SERIF, fontWeight: 600, color: c.title }}>{str(p.nombre)}</h3>
+                  <div className="mt-1 text-[1.6rem] font-bold" style={{ letterSpacing: "-0.02em", color: c.title }}>
+                    {str(p.precio)} {str(p.unidad) ? <span className="text-[0.8rem] font-medium" style={{ color: c.soft }}>{str(p.unidad)}</span> : null}
+                  </div>
+                  <ul className="mt-3.5 flex flex-col gap-1.5">
+                    {arr<string>(p.incluye).map((f, j) => (
+                      <li key={j} className="flex gap-2 text-[0.86rem]" style={{ color: c.body }}><span className="shrink-0 font-extrabold" style={{ color: OK }}>✓</span><span>{str(f)}</span></li>
+                    ))}
+                  </ul>
+                </div>
+              );
+            })}
+          </div>
+          {str(block.nota) ? <p className="mt-4 text-[0.82rem]" style={{ color: c.soft }}>{str(block.nota)}</p> : null}
+        </Shell>
+      );
+    }
+    case "entregables": {
+      const ent = arr<{ q?: string; t?: string; d?: string }>(block.items);
+      return (
+        <Shell bg={bg} video={video} dark={dark} first={first}>
+          {kicker ? <Eyebrow color={c.accent}>{kicker}</Eyebrow> : null}
+          {str(block.title) ? <Titulo color={c.title}>{str(block.title)}</Titulo> : null}
+          <div
+            className="rounded-2xl border px-2 sm:px-3"
+            style={{ background: c.cardBg, borderColor: c.cardBorder, boxShadow: onDark ? undefined : "0 1px 2px rgba(20,20,25,.04), 0 12px 32px rgba(20,20,25,.05)" }}
+          >
+            {ent.map((e, i) => (
+              <div key={i} className="flex items-start gap-4 px-3 py-3.5" style={{ borderTop: i === 0 ? undefined : `1px solid ${c.line}` }}>
+                <div className="min-w-[52px] shrink-0 text-[1.5rem] leading-none" style={{ fontFamily: SERIF, fontWeight: 600, color: c.accent }}>{str(e.q)}</div>
+                <div className="min-w-0">
+                  <b className="block text-[0.98rem] font-semibold" style={{ color: c.title }}>{str(e.t)}</b>
+                  {str(e.d) ? <span className="text-[0.88rem]" style={{ color: c.soft }}>{str(e.d)}</span> : null}
+                </div>
+              </div>
+            ))}
+          </div>
+        </Shell>
+      );
+    }
     default:
       return null;
   }
