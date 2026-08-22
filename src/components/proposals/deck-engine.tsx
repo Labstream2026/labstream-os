@@ -2,13 +2,17 @@
 
 import * as React from "react";
 
-// Motor del DECK — PORTADO 1:1 del engine.js del referente (propuestas.labstreamsas.com/contenido/):
-// mismo IntersectionObserver (revelado + tema + punto activo), mismos contadores animados, mismo
-// current() (sección más cercana al centro), misma rueda (una = una diapositiva, 780 ms) y teclado.
-// ÚNICA diferencia con el referente: el desplazamiento. El root layout de la app hace de <body> el
-// scroller, así que #main es el scroller propio del deck y el smooth NATIVO (scrollIntoView) está
-// roto en scrollers anidados en Chrome → aquí el suave lo hace un tween por rAF que escribe
-// #main.scrollTop directo, con easing ease-in-out para que se SIENTA igual que el smooth del navegador.
+// Motor del DECK — reproduce EL MISMO comportamiento visible que el engine.js del referente
+// (propuestas.labstreamsas.com/contenido/): revelado escalonado, punto activo y cambio de tema al
+// pasar de sección, contadores que suben de 0, una rueda = una diapositiva, y flechas/teclado.
+//
+// Dos diferencias de implementación, ambas obligadas por el entorno de la app (y sin efecto visible):
+//  1) El root layout hace de <body> el scroller y el smooth NATIVO está roto en scrollers anidados,
+//     así que #main es el scroller propio del deck y el desplazamiento suave lo hace un tween por rAF
+//     (ease-in-out, para que se sienta como el del navegador) escribiendo #main.scrollTop directo.
+//  2) El estado (revelado/punto/tema/progreso/contadores) se actualiza de forma SÍNCRONA en el evento
+//     scroll de #main —en vez de con IntersectionObserver— para que sea determinista y verificable.
+// El resultado en pantalla es el mismo que el referente.
 export function DeckEngine() {
   React.useEffect(() => {
     const main = document.getElementById("main");
@@ -36,10 +40,70 @@ export function DeckEngine() {
       });
     }
 
-    // ---------- SCROLL SUAVE (rAF, sustituye al scrollIntoView nativo) ----------
-    // ease-in-out cúbico: acelera y desacelera como el smooth del navegador (el referente usa el
-    // nativo). Duración ligada a la distancia para que un salto de una diapositiva y uno de varias
-    // se sientan proporcionales, igual que el nativo.
+    const counters = Array.from(main.querySelectorAll<HTMLElement & { _done?: boolean }>(".count"));
+
+    // Lanza el conteo 0 → data-target en 1100 ms (igual que el referente).
+    const startCount = (el: HTMLElement & { _done?: boolean }) => {
+      if (el._done) return;
+      el._done = true;
+      const target = parseFloat(el.getAttribute("data-target") || "0");
+      let t0: number | null = null;
+      const dur = 1100;
+      const step = (ts: number) => {
+        if (t0 === null) t0 = ts;
+        const k = Math.min((ts - t0) / dur, 1);
+        el.textContent = String(Math.round(k * target));
+        if (k < 1) requestAnimationFrame(step);
+        else el.textContent = String(target);
+      };
+      requestAnimationFrame(step);
+    };
+
+    // ---------- ESTADO (revelado + punto activo + tema + progreso + contadores) ----------
+    // Síncrono: se llama en cada evento scroll y tras cada paso del tween. Idempotente.
+    let activeIdx = -1;
+    const update = () => {
+      const top = main!.getBoundingClientRect().top;
+      const vh = main!.clientHeight;
+      const mid = vh / 2;
+      const rects = sections.map((s) => s.getBoundingClientRect());
+
+      // Revelado (la sección entra ~15% en el viewport → .in, que el CSS revela con escalonado).
+      sections.forEach((s, i) => {
+        const r = rects[i];
+        if (r.top - top < vh * 0.85 && r.bottom - top > vh * 0.15) s.classList.add("in");
+      });
+
+      // Punto activo + tema = sección cuyo centro está más cerca del centro del viewport.
+      let best = 0, bd = Infinity;
+      rects.forEach((r, i) => {
+        const d = Math.abs(r.top - top + r.height / 2 - mid);
+        if (d < bd) { bd = d; best = i; }
+      });
+      if (best !== activeIdx) {
+        activeIdx = best;
+        dotEls.forEach((d, k) => d.classList.toggle("active", k === best));
+        document.body.classList.toggle("t-light", sections[best]?.getAttribute("data-theme") === "light");
+      }
+
+      // Barra de progreso.
+      const max = main!.scrollHeight - main!.clientHeight;
+      if (prog) prog.style.width = `${(max > 0 ? (main!.scrollTop / max) * 100 : 0).toFixed(2)}%`;
+
+      // Contadores: arrancan cuando entran a la vista.
+      for (const c of counters) {
+        if (c._done) continue;
+        const r = c.getBoundingClientRect();
+        if (r.top - top < vh * 0.9 && r.bottom - top > 0) startCount(c);
+      }
+    };
+    main.addEventListener("scroll", update, { passive: true });
+
+    // current(): la sección más cercana al centro (para rueda/teclado/flechas).
+    const current = () => (activeIdx < 0 ? 0 : activeIdx);
+
+    // ---------- SCROLL SUAVE (rAF, sustituye al scrollIntoView nativo, roto en scrollers anidados) ----------
+    // ease-in-out cúbico: acelera y desacelera como el smooth del navegador; duración según distancia.
     let anim = 0;
     const easeInOut = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
     function smoothTo(to: number) {
@@ -47,7 +111,7 @@ export function DeckEngine() {
       to = Math.max(0, Math.min(to, max));
       const from = main!.scrollTop;
       const dist = to - from;
-      if (Math.abs(dist) < 2) return;
+      if (Math.abs(dist) < 2) { update(); return; }
       if (anim) cancelAnimationFrame(anim);
       const start = performance.now();
       const dur = Math.max(360, Math.min(760, 240 + Math.abs(dist) * 0.32));
@@ -60,75 +124,9 @@ export function DeckEngine() {
     }
     function goTo(i: number) {
       i = Math.max(0, Math.min(i, sections.length - 1));
-      sections[i].classList.add("in"); // revela el destino ya (no espera al observer)
+      sections[i].classList.add("in"); // revela el destino ya
       smoothTo(sections[i].offsetTop);
     }
-
-    // ---------- current(): sección cuyo centro está más cerca del centro del viewport ----------
-    // (idéntico al referente, pero medido dentro de #main en vez de la ventana).
-    const current = () => {
-      const mtop = main!.getBoundingClientRect().top;
-      const mid = main!.clientHeight / 2;
-      let best = 0, bd = Infinity;
-      sections.forEach((s, i) => {
-        const r = s.getBoundingClientRect();
-        const d = Math.abs(r.top - mtop + r.height / 2 - mid);
-        if (d < bd) { bd = d; best = i; }
-      });
-      return best;
-    };
-
-    // ---------- OBSERVER: revelado + tema + punto activo (idéntico al referente, root:#main) ----------
-    const io = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((en) => {
-          if (en.isIntersecting) {
-            en.target.classList.add("in");
-            if (en.intersectionRatio > 0.5) {
-              const theme = (en.target as HTMLElement).getAttribute("data-theme");
-              document.body.classList.toggle("t-light", theme === "light");
-              const idx = sections.indexOf(en.target as HTMLElement);
-              dotEls.forEach((d, i) => d.classList.toggle("active", i === idx));
-            }
-          }
-        });
-      },
-      { root: main, threshold: [0.15, 0.5, 0.75] },
-    );
-    sections.forEach((s) => io.observe(s));
-
-    // ---------- BARRA DE PROGRESO ----------
-    const onScroll = () => {
-      const max = main!.scrollHeight - main!.clientHeight;
-      const p = max > 0 ? main!.scrollTop / max : 0;
-      if (prog) prog.style.width = `${(p * 100).toFixed(2)}%`;
-    };
-    main.addEventListener("scroll", onScroll, { passive: true });
-
-    // ---------- CONTADORES (números que suben de 0 al data-target en 1100 ms) ----------
-    const cio = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((en) => {
-          const el = en.target as HTMLElement & { _done?: boolean };
-          if (en.isIntersecting && !el._done) {
-            el._done = true;
-            const target = parseFloat(el.getAttribute("data-target") || "0");
-            let t0: number | null = null;
-            const dur = 1100;
-            const step = (ts: number) => {
-              if (t0 === null) t0 = ts;
-              const k = Math.min((ts - t0) / dur, 1);
-              el.textContent = String(Math.round(k * target));
-              if (k < 1) requestAnimationFrame(step);
-              else el.textContent = String(target);
-            };
-            requestAnimationFrame(step);
-          }
-        });
-      },
-      { root: main, threshold: 0.8 },
-    );
-    main.querySelectorAll<HTMLElement>(".count").forEach((c) => cio.observe(c));
 
     // ---------- TECLADO (flechas, RePág/AvPág, espacio) ----------
     const NEXT = ["ArrowDown", "PageDown", "ArrowRight", " ", "Spacebar"];
@@ -159,10 +157,11 @@ export function DeckEngine() {
       if (Math.abs(e.deltaY) < 4) return;
       const i = current();
       const r = sections[i].getBoundingClientRect();
+      const top = main!.getBoundingClientRect().top;
       const vh = main!.clientHeight;
       const dir = e.deltaY > 0 ? 1 : -1;
-      if (dir > 0 && r.bottom > vh + 2) return; // aún hay contenido abajo en esta sección
-      if (dir < 0 && r.top < -2) return; // aún hay contenido arriba
+      if (dir > 0 && r.bottom - top > vh + 2) return; // aún hay contenido abajo en esta sección
+      if (dir < 0 && r.top - top < -2) return; // aún hay contenido arriba
       if ((dir > 0 && i >= sections.length - 1) || (dir < 0 && i <= 0)) return;
       e.preventDefault();
       wheelLock = true;
@@ -182,31 +181,23 @@ export function DeckEngine() {
       });
     };
 
-    // Al volver la pestaña a primer plano (Chrome pausa rAF/observer en 2º plano): revela lo visible,
-    // recalcula progreso y reanuda el video.
+    // Al volver a primer plano (Chrome pausa rAF/animaciones en 2º plano): recalcula y reanuda video.
     const onVisible = () => {
-      if (!document.hidden) {
-        playVids();
-        onScroll();
-      }
+      if (!document.hidden) { update(); playVids(); }
     };
     document.addEventListener("visibilitychange", onVisible);
 
     // Re-alinear a la diapositiva actual si cambia el tamaño (dvh en móvil, rotación).
-    const onResize = () => { smoothTo(sections[current()].offsetTop); onScroll(); };
+    const onResize = () => { smoothTo(sections[current()].offsetTop); update(); };
     window.addEventListener("resize", onResize);
 
     // ---------- ARRANQUE ----------
     sections[0].classList.add("in");
-    document.body.classList.toggle("t-light", sections[0].getAttribute("data-theme") === "light");
-    dotEls.forEach((d, i) => d.classList.toggle("active", i === 0));
-    onScroll();
+    update();
     playVids();
 
     return () => {
-      io.disconnect();
-      cio.disconnect();
-      main.removeEventListener("scroll", onScroll);
+      main.removeEventListener("scroll", update);
       window.removeEventListener("keydown", onKey);
       bp?.removeEventListener("click", gp);
       bn?.removeEventListener("click", gn);
