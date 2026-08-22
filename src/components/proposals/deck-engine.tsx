@@ -52,6 +52,7 @@ export function DeckEngine() {
       const from = main!.scrollTop;
       const dist = to - from;
       setActive(i);
+      sections[i].classList.add("in"); // revela el destino ya (no espera al onScroll)
       if (Math.abs(dist) < 2) return;
       if (anim) cancelAnimationFrame(anim);
       const start = performance.now();
@@ -139,6 +140,17 @@ export function DeckEngine() {
     const onResize = () => goTo(cur);
     window.addEventListener("resize", onResize);
 
+    // Si la pestaña estaba en segundo plano al cargar (Chrome pausa el rAF ahí), al volver a ser
+    // visible revela lo que quedó a la vista y reanuda el autoplay del video de fondo.
+    const onVisible = () => {
+      if (!document.hidden) {
+        reveal();
+        onScroll();
+        playVids();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
+
     // Arranque.
     setActive(0);
     sections[0].classList.add("in");
@@ -153,6 +165,7 @@ export function DeckEngine() {
       bn?.removeEventListener("click", gn);
       main.removeEventListener("wheel", onWheel);
       window.removeEventListener("resize", onResize);
+      document.removeEventListener("visibilitychange", onVisible);
       if (anim) cancelAnimationFrame(anim);
       if (ticking) cancelAnimationFrame(ticking);
     };
