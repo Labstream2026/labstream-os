@@ -14,6 +14,7 @@ import {
   CalendarDays,
   ChevronRight,
   FileCheck2,
+  FileText,
   FolderCheck,
   HardDrive,
   Home,
@@ -259,11 +260,14 @@ export function Sidebar({
 
   // ── Navegación del rail (misma lógica de permisos/portal del sidebar anterior) ──
   const NAV: { href: string; label: string; icon: React.ComponentType<{ className?: string }>; badge?: number; show: boolean; active: boolean }[] = [
-    // Portal del cliente: sus 4 superficies, con los MISMOS iconos que el sub-nav del portal
-    // (client-portal-nav.tsx) para que se sienta un solo espacio.
+    // Portal del cliente: sus superficies, con los MISMOS iconos que el sub-nav del portal
+    // (client-portal-nav.tsx) para que se sienta un solo espacio. «Documentos» faltaba aquí (y
+    // en la barra inferior): solo se alcanzaba por las píldoras del sub-nav, así que el editor
+    // colaborativo —que YA funciona— era invisible desde la navegación principal.
     { href: "/inicio", label: "Inicio", icon: Home, show: isCliente, active: pathname === "/inicio" },
     { href: "/mis-entregas", label: "Mis entregas", icon: Inbox, show: isCliente, active: pathname.startsWith("/mis-entregas") },
     { href: "/entregas-finales", label: "Entregas finales", icon: FolderCheck, show: isCliente, active: pathname.startsWith("/entregas-finales") },
+    { href: "/documentos", label: "Documentos", icon: FileText, show: isCliente, active: pathname.startsWith("/documentos") },
     { href: "/solicitudes", label: "Solicitudes", icon: MessageSquarePlus, show: isCliente, active: pathname.startsWith("/solicitudes") },
     // El orden de arriba es el que fijó el usuario (2026-07-31): del día a día personal
     // (tareas, agenda, notas) hacia el trabajo compartido (proyectos, revisiones, chat).
