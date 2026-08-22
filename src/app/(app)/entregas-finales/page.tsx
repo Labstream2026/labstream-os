@@ -70,6 +70,7 @@ export default async function EntregasFinalesPage() {
           coverDownload: i.coverDownload,
           versionNumber: i.versionNumber,
           approvedLabel: `Aprobada · ${formatBogotaDate(i.approvedAt, { day: "numeric", month: "short" })}`,
+          play: i.play,
           download: i.download,
           renditions: i.renditions,
           photos: i.photos,

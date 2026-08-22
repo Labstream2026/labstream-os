@@ -28,6 +28,10 @@ export type DeliveryItem = {
   coverDownload: string | null; // portada aprobada descargable (directa, para superficies con sesión)
   versionNumber: number | null;
   approvedAt: Date;
+  // Reproducción EN LÍNEA del máster final (solo video local del NAS): la galería del cliente lo
+  // reproduce dentro del zoom, sin descargarlo. null para fotos y para piezas de Drive/enlace
+  // (esas se abren aparte). Streaming con Range por /api/files-asset (mismo que la sala).
+  play: string | null;
   // Descarga DIRECTA del máster (portal con sesión). La sala pública no usa estos href:
   // pasa por /api/entrega/[token]/go para registrar la descarga y validar el alcance.
   download: { href: string; external: boolean } | null;
@@ -118,6 +122,11 @@ export async function getDeliveryPackage(projectId: string): Promise<DeliveryPac
         ? photoDownloadSrc({ fileAssetId: d.coverFileAssetId, url: null })
         : null;
     const isFotos = d.type === "FOTOGRAFIA";
+    // Reproducción en línea: solo video local del NAS (no fotos, no Drive). Token de 24 h como
+    // las fotos, para que abrir el zoom un rato después no caiga a 401 a media reproducción.
+    const play = !isFotos && v?.fileAsset && !v.fileAsset.deletedAt
+      ? `/api/files-asset/${v.fileAsset.id}?t=${signFileToken(v.fileAsset.id, 24 * 60 * 60)}`
+      : null;
     return {
       id: d.id,
       name: d.name,
@@ -130,6 +139,7 @@ export async function getDeliveryPackage(projectId: string): Promise<DeliveryPac
       coverDownload,
       versionNumber: v?.number ?? null,
       approvedAt: d.decisions[0]?.createdAt ?? v?.internalApprovedAt ?? d.updatedAt,
+      play,
       download,
       renditions: d.renditions.map((r) => ({ id: r.id, label: r.label || r.format, url: r.url })),
       photos: isFotos
