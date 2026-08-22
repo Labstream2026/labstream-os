@@ -55,6 +55,18 @@ function secHead(block: Block): string {
 
 const gridClass = (n: number): string => (n <= 2 ? "g2" : n === 3 ? "g3" : "g4");
 
+// Envuelve un ENTERO en <span class="count" data-target> para que el motor lo anime de 0 al valor
+// (igual que el referente). Conserva prefijo/sufijo no numéricos (p. ej. "+40 %" → +[40]% animado,
+// "5 años" → [5] años). Solo enteros limpios: si el número trae separadores o decimales ("1.200",
+// "98.5%", "24/7") se muestra tal cual — animar un valor mal interpretado sería peor que no animar.
+function statNum(raw: string): string {
+  const m = /^([^\d]*?)(\d+)(\D*)$/.exec(raw.trim());
+  if (!m) return esc(raw);
+  const target = parseInt(m[2], 10);
+  if (!Number.isFinite(target)) return esc(raw);
+  return `${esc(m[1])}<span class="count" data-target="${target}">0</span>${esc(m[3])}`;
+}
+
 function section(theme: string, label: string, inner: string, media = "", id = ""): string {
   return `<section${id ? ` id="${esc(id)}"` : ""} class="sec-${theme}" data-theme="${theme}" data-label="${esc(label)}">${media}<div class="wrap${media ? " z" : ""}">${inner}</div></section>`;
 }
@@ -96,7 +108,7 @@ function bloqueDeck(block: Block, brand: Brand, i: number): string {
     }
     case "stats": {
       const items = arr<{ n?: string; p?: string; f?: string }>(block.items);
-      const cards = items.map((it) => `<div class="card r"><div class="num" style="color:${esc(accent)}">${esc(it.n)}</div><p>${esc(it.p)}</p>${str(it.f) ? `<p style="opacity:.6;font-size:.8rem;margin-top:.4rem">${esc(it.f)}</p>` : ""}</div>`).join("");
+      const cards = items.map((it) => `<div class="card r"><div class="num" style="color:${esc(accent)}">${statNum(str(it.n))}</div><p>${esc(it.p)}</p>${str(it.f) ? `<p style="opacity:.6;font-size:.8rem;margin-top:.4rem">${esc(it.f)}</p>` : ""}</div>`).join("");
       return section(theme, label, secHead(block) + `<div class="grid ${gridClass(items.length)}">${cards}</div>`, media.html);
     }
     case "checks": {
