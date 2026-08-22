@@ -13,7 +13,7 @@ export function routeMeta(pathname: string): RouteMeta {
   if (pathname === "/") return { icon: "inicio", label: "Inicio", desc: "Tu día de un vistazo: pendientes, avisos y actividad" };
   // Portal del cliente: /inicio (su portada) y /documentos caían al rótulo de reserva «Labstream».
   if (pathname.startsWith("/inicio")) return { icon: "inicio", label: "Inicio", desc: "Tu proyecto de un vistazo" };
-  if (pathname.startsWith("/documentos")) return { icon: "archivo", label: "Documentos", desc: "Guiones, propuestas y planillas de tus proyectos" };
+  if (pathname.startsWith("/documentos")) return { icon: "archivo", label: "Materiales", desc: "El brief, tu material y los documentos de cada proyecto" };
   if (pathname.startsWith("/mis-tareas")) return { icon: "tareas", label: "Mis tareas", desc: "Todo lo tuyo, de todos los proyectos" };
   if (pathname.startsWith("/mis-entregas")) return { icon: "entregas", label: "Mis entregas", desc: "Tus proyectos y material para revisar" };
   if (pathname.startsWith("/estados")) return { icon: "chat", label: "Chat del día", desc: "El pulso del equipo, hoy" };

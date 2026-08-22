@@ -10,7 +10,7 @@ const TABS = [
   { key: "inicio", label: "Inicio", href: "/inicio", icon: Home },
   { key: "entregas", label: "Mis entregas", href: "/mis-entregas", icon: Inbox },
   { key: "finales", label: "Entregas finales", href: "/entregas-finales", icon: FolderCheck },
-  { key: "documentos", label: "Documentos", href: "/documentos", icon: FileText },
+  { key: "documentos", label: "Materiales", href: "/documentos", icon: FileText },
   { key: "solicitudes", label: "Solicitudes", href: "/solicitudes", icon: MessageSquarePlus },
 ] as const;
 

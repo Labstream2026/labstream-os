@@ -267,7 +267,7 @@ export function Sidebar({
     { href: "/inicio", label: "Inicio", icon: Home, show: isCliente, active: pathname === "/inicio" },
     { href: "/mis-entregas", label: "Mis entregas", icon: Inbox, show: isCliente, active: pathname.startsWith("/mis-entregas") },
     { href: "/entregas-finales", label: "Entregas finales", icon: FolderCheck, show: isCliente, active: pathname.startsWith("/entregas-finales") },
-    { href: "/documentos", label: "Documentos", icon: FileText, show: isCliente, active: pathname.startsWith("/documentos") },
+    { href: "/documentos", label: "Materiales", icon: FileText, show: isCliente, active: pathname.startsWith("/documentos") },
     { href: "/solicitudes", label: "Solicitudes", icon: MessageSquarePlus, show: isCliente, active: pathname.startsWith("/solicitudes") },
     // El orden de arriba es el que fijó el usuario (2026-07-31): del día a día personal
     // (tareas, agenda, notas) hacia el trabajo compartido (proyectos, revisiones, chat).
