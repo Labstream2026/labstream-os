@@ -10,7 +10,9 @@ import { accessibleProjectWhere, canAccessProject, canManageProject, canWritePro
 import { isDeliverableType, isProjectRole } from "@/lib/enum-guards";
 import { safeExternalUrl } from "@/lib/url";
 import { bogotaNoon } from "@/lib/today";
-import { mimeFor, signFileToken, saveBuffer } from "@/lib/storage";
+import { mimeFor, signFileToken, saveBuffer, absPath } from "@/lib/storage";
+import { posterDeVideo, puedeHacerPoster } from "@/lib/video-poster";
+import fs from "node:fs/promises";
 import { getOnlyOfficeConfig, convertOfficeToText, officeType } from "@/lib/onlyoffice";
 import { createProjectDoc } from "@/lib/doc-create";
 import { saveBufferWithPreview, isOptimizableImage } from "@/lib/image";
@@ -1467,8 +1469,10 @@ export async function createDeliverable(projectId: string, formData: FormData) {
   const fileUrl = safeExternalUrl(String(formData.get("fileUrl") ?? ""));
   const file = formData.get("file");
   const hasFile = file instanceof File && file.size > 0 && file.size <= MAX_UPLOAD && !BLOCKED_EXT.test(file.name);
+  // Se declara FUERA del if para que la auto-portada del final pueda usarlo (esta acción fija la
+  // portada tras crear la pieza y su v1).
+  let fileAssetId: string | null = chunkAssetId;
   if (fileUrl || hasFile || chunkAssetId) {
-    let fileAssetId: string | null = chunkAssetId;
     if (!fileAssetId && hasFile) {
       const f = file as File;
       const buf = Buffer.from(await f.arrayBuffer());
@@ -1514,7 +1518,8 @@ export async function createDeliverable(projectId: string, formData: FormData) {
     }
   }
 
-  // Portada: la imagen adjunta en el formulario; si no hay, el fotograma capturado del video.
+  // Portada: la imagen adjunta en el formulario; si no hay, el fotograma capturado del video; y
+  // si el navegador no pudo con el máster, ffmpeg en el NAS lo saca en segundo plano.
   const cover = formData.get("cover");
   if (cover instanceof File && cover.size > 0) {
     await saveDeliverableCover({ projectId, deliverableId: d.id, deliverableName: name, prevCoverId: null, file: cover, uploadedById: session.id });
@@ -1522,6 +1527,8 @@ export async function createDeliverable(projectId: string, formData: FormData) {
     const posterFile = posterDataUrlToFile(String(formData.get("poster") ?? ""));
     if (posterFile) {
       await saveDeliverableCover({ projectId, deliverableId: d.id, deliverableName: name, prevCoverId: null, file: posterFile, uploadedById: session.id }).catch(() => {});
+    } else if (fileAssetId) {
+      void autoCoverFromVideo(d.id, projectId, fileAssetId, session.id);
     }
   }
   refresh(projectId);
@@ -1785,6 +1792,47 @@ async function saveDeliverableCover(opts: {
   await logActivity({ action: "deliverable.cover", summary: `actualizó la portada del entregable «${deliverableName}»`, projectId, entityType: "deliverable", entityId: deliverableId });
 }
 
+// Auto-portada SERVIDOR: cuando el navegador de quien sube no pudo decodificar el máster
+// (HEVC/ProRes/.mov pesado), no llega `poster` y el entregable se quedaba sin portada —ese es el
+// hueco real de la galería—. Aquí ffmpeg (ya instalado en el NAS) saca «el mejor fotograma» del
+// propio archivo subido y lo fija como portada. Va en SEGUNDO PLANO (el que llama NO la espera):
+// el casting son varios ffmpeg y la subida no debe pagar esa espera —igual criterio que la copia
+// de revisión (prewarmReviewCopy)—. Es idempotente y silenciosa: no registra actividad, y solo
+// pone la portada si SIGUE faltando (updateMany con guardia), para no pisar una puesta a mano ni
+// competir con otra versión subida a la vez. Todo va envuelto en try/catch: una portada que no sale
+// nunca puede tumbar una subida que sí funcionó.
+async function autoCoverFromVideo(deliverableId: string, projectId: string, fileAssetId: string, uploadedById: string): Promise<void> {
+  try {
+    const asset = await db.fileAsset.findUnique({ where: { id: fileAssetId }, select: { path: true, name: true, kind: true } });
+    // Solo archivos LOCALES del NAS con extensión que ffmpeg abra. Drive/enlaces no tienen ruta
+    // en disco aquí (su copia de revisión llega aparte y ya trae su propio póster de navegador).
+    if (!asset || asset.kind !== "LOCAL" || !asset.path || !puedeHacerPoster(asset.name)) return;
+    let abs: string;
+    let st: { mtimeMs: number; size: number };
+    try {
+      abs = absPath(asset.path);
+      const s = await fs.stat(abs);
+      st = { mtimeMs: s.mtimeMs, size: s.size };
+    } catch {
+      return; // el archivo no está donde dice: nada que hacer
+    }
+    const webp = await posterDeVideo(abs, st, 640);
+    if (!webp) return; // formato que ffmpeg no abre, corrupto, o ffmpeg ausente: se queda con su icono
+    // ¿Sigue sin portada? Una puesta a mano —o la de otra versión— pudo ganar mientras ffmpeg trabajaba.
+    const d = await db.deliverable.findUnique({ where: { id: deliverableId }, select: { coverFileAssetId: true } });
+    if (!d || d.coverFileAssetId) return;
+    const cover = await db.fileAsset.create({ data: { projectId, name: "portada.webp", kind: "LOCAL", path: "", mime: "image/webp", size: webp.length, uploadedById } });
+    const rel = await saveBufferWithPreview(`project/${projectId}/portadas`, `${cover.id}-portada.webp`, webp, "image/webp");
+    await db.fileAsset.update({ where: { id: cover.id }, data: { path: rel } });
+    // Atómico: fija la portada SOLO si sigue nula. Si otro se adelantó, borra la recién creada para
+    // no dejar un FileAsset huérfano en disco/BD.
+    const res = await db.deliverable.updateMany({ where: { id: deliverableId, coverFileAssetId: null }, data: { coverFileAssetId: cover.id } });
+    if (res.count === 0) await db.fileAsset.delete({ where: { id: cover.id } }).catch(() => {});
+  } catch {
+    /* una auto-portada nunca es crítica: si algo falla, el entregable muestra su icono y ya */
+  }
+}
+
 // Sube/reemplaza la PORTADA del entregable (la imagen que acompaña al reel/video). Imagen
 // optimizada a WebP en el NAS; se sirve por /api/files-asset. Solo gestores con subir_archivos.
 export async function setDeliverableCover(projectId: string, deliverableId: string, formData: FormData) {
@@ -1982,10 +2030,14 @@ export async function addDeliverableVersion(
     }
   }
   // Auto-portada: si el entregable aún no tiene portada, usa el fotograma capturado al subir.
+  // Y si el navegador NO pudo con este máster (no llegó `poster`), lo saca ffmpeg en el NAS a
+  // partir del propio archivo subido, en segundo plano — para que ningún video quede sin portada.
   if (!deliverable.coverFileAssetId) {
     const posterFile = posterDataUrlToFile(String(formData.get("poster") ?? ""));
     if (posterFile) {
       await saveDeliverableCover({ projectId: deliverable.projectId, deliverableId, deliverableName: deliverable.name, prevCoverId: null, file: posterFile, uploadedById: session!.id }).catch(() => {});
+    } else if (fileAssetId) {
+      void autoCoverFromVideo(deliverableId, deliverable.projectId, fileAssetId, session!.id);
     }
   }
   // La nueva versión pasa a revisión interna (compuerta bloqueante) o directo al cliente.
