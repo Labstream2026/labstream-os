@@ -1076,6 +1076,7 @@ model Proposal {
   answers     Json? // respuestas del asistente (regeneración / referencia)
   brand       Json // snapshot de marca (empresa, acento, contacto)
   blocks      Json // lista ordenada de bloques del documento
+  attachments ProposalAttachment[] // archivos que viajan con la propuesta (portafolio, casos…)
   client      Client?        @relation(fields: [clientId], references: [id], onDelete: SetNull)
   clientId    String?
   createdBy   User?          @relation("ProposalCreator", fields: [createdById], references: [id], onDelete: SetNull)
@@ -1091,6 +1092,24 @@ model Proposal {
 // y las imágenes que se reutilizan entre propuestas. Vive aparte de `storage/proposal/<id>/`
 // (que es de UNA propuesta) justamente para poder reusarla: se sube una vez, se etiqueta por
 // categoría (streaming, fotografía, evento…) y desde ahí la elige cualquier propuesta.
+// ADJUNTOS de UNA propuesta: archivos que viajan con ella (portafolio, casos de éxito,
+// contrato…). Se muestran en el portal del cliente como descargas y se guardan en el NAS bajo
+// storage/proposal/<id>/adjuntos/. Distinto de ProposalAsset (biblioteca compartida entre
+// propuestas): esto pertenece a una sola. createdById es escalar (solo registro, sin relación).
+model ProposalAttachment {
+  id          String   @id @default(cuid())
+  proposal    Proposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  proposalId  String
+  name        String // nombre visible, con extensión
+  rel         String // ruta relativa dentro del NAS (proposal/<id>/adjuntos/…)
+  mime        String
+  size        Int
+  createdById String? // quién lo subió
+  createdAt   DateTime @default(now())
+
+  @@index([proposalId])
+}
+
 model ProposalAsset {
   id          String   @id @default(cuid())
   kind        String // "VIDEO" | "LOGO" | "IMAGE"
