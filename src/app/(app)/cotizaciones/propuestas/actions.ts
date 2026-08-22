@@ -14,7 +14,7 @@ import { catalogToBudgetSections, type BudgetSection } from "@/lib/proposals/bud
 import { getCatalogForWizard } from "@/lib/services-catalog";
 import { createWithSequentialCode, maxCodeFrom } from "@/lib/sequential-code";
 import { isProposalStatus } from "@/lib/enum-guards";
-import { saveBuffer, writeRelBuffer } from "@/lib/storage";
+import { saveBuffer, writeRelBuffer, deleteRel } from "@/lib/storage";
 import { logActivity } from "@/lib/activity";
 import { createOrGetQuoteForProposal } from "@/lib/quote-from-proposal";
 import { optimizeToWebp, isOptimizableImage } from "@/lib/image";
@@ -183,6 +183,46 @@ export async function uploadProposalImage(proposalId: string, formData: FormData
     filename = rel.split("/").pop()!;
   }
   return { url: `/api/proposal-img/${proposalId}/${filename}` };
+}
+
+// ── Adjuntos de la propuesta ─────────────────────────────────────────────────
+// Archivos que viajan con la propuesta (portafolio, casos, contrato…). Se guardan en el NAS y
+// se descargan desde el portal del cliente con el token firmado. Sin optimizar: se guardan tal
+// cual (un PDF de portafolio no se toca).
+export type AdjuntoPropuesta = { id: string; name: string; size: number; mime: string };
+const MAX_ADJUNTO = 25 * 1024 * 1024; // 25 MB
+
+export async function subirAdjuntoPropuesta(proposalId: string, formData: FormData): Promise<AdjuntoPropuesta | null> {
+  const session = await requirePerm("crear_cotizaciones");
+  await ensureProposalAccess(proposalId);
+  if (!/^[a-z0-9]+$/i.test(proposalId)) throw new Error("Propuesta inválida");
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size === 0) return null;
+  if (file.size > MAX_ADJUNTO) throw new Error("El archivo supera 25 MB");
+  // Nombre visible saneado (sin separadores ni caracteres de control); el archivo en disco lleva
+  // un uuid, así que dos «portafolio.pdf» no colisionan y la ruta real nunca se expone.
+  const nombre = (file.name || "adjunto").replace(/[\\/]/g, "").replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 160) || "adjunto";
+  const ext = nombre.match(/\.[a-z0-9]{1,8}$/i)?.[0] ?? "";
+  const buf = Buffer.from(await file.arrayBuffer());
+  const rel = await saveBuffer(`proposal/${proposalId}/adjuntos`, `${crypto.randomUUID()}${ext}`, buf);
+  const row = await db.proposalAttachment.create({
+    data: { proposalId, name: nombre, rel, mime: file.type || "application/octet-stream", size: file.size, createdById: session?.id ?? null },
+    select: { id: true, name: true, size: true, mime: true },
+  });
+  revalidatePath(`/cotizaciones/propuestas/${proposalId}`);
+  return row;
+}
+
+export async function quitarAdjuntoPropuesta(attachmentId: string): Promise<void> {
+  await requirePerm("crear_cotizaciones");
+  const a = await db.proposalAttachment.findUnique({ where: { id: attachmentId }, select: { id: true, proposalId: true, rel: true } });
+  if (!a) return;
+  await ensureProposalAccess(a.proposalId);
+  await db.proposalAttachment.delete({ where: { id: a.id } });
+  // El archivo huérfano en disco no debe tumbar la acción (la fila ya se borró, que es lo que ve
+  // el usuario); si el borrado del NAS falla, queda un archivo suelto, no un adjunto fantasma.
+  await deleteRel(a.rel).catch(() => {});
+  revalidatePath(`/cotizaciones/propuestas/${a.proposalId}`);
 }
 
 export async function updateProposalMeta(

@@ -5,20 +5,20 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft, ChevronUp, ChevronDown, Copy, Trash2, Pencil, Plus, Eye, EyeOff,
-  Link2, Printer, Settings2, Check, Loader2, Cloud, Receipt, FileText, FileType,
+  Link2, Printer, Settings2, Check, Loader2, Cloud, Receipt, FileText, FileType, Upload, Paperclip,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { tone } from "@/lib/colors";
 import { ProposalRenderer } from "../proposal-renderer";
 import { BlockEditPanel } from "./block-edit";
 import { BLOCK_LABELS, STATUS_META, newBlock, type Block, type Brand, type BlockType, type ProposalStatus } from "@/lib/proposals/types";
-import { saveProposalBlocks, updateProposalMeta, setProposalStatus, deleteProposal, setProposalPassword, createQuoteFromProposal } from "../actions";
+import { saveProposalBlocks, updateProposalMeta, setProposalStatus, deleteProposal, setProposalPassword, createQuoteFromProposal, subirAdjuntoPropuesta, quitarAdjuntoPropuesta, type AdjuntoPropuesta } from "../actions";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 
 const ALL_TYPES = Object.keys(BLOCK_LABELS) as BlockType[];
 
 export function ProposalEditor({
-  id, code, initialTitle, initialBlocks, initialBrand, initialStatus, initialExpiresAt, initialClientId = "", initialHasPassword = false, acceptance = null, rejection = null, initialQuote = null, clients = [], publicUrl,
+  id, code, initialTitle, initialBlocks, initialBrand, initialStatus, initialExpiresAt, initialClientId = "", initialHasPassword = false, acceptance = null, rejection = null, initialQuote = null, clients = [], initialAttachments = [], publicUrl,
 }: {
   id: string;
   code: string;
@@ -34,6 +34,7 @@ export function ProposalEditor({
   /** Cotización ya nacida de esta propuesta (si el equipo ya la convirtió). */
   initialQuote?: { id: string; code: string } | null;
   clients?: { id: string; name: string; emoji: string | null }[];
+  initialAttachments?: AdjuntoPropuesta[];
   publicUrl: string;
 }) {
   const router = useRouter();
@@ -49,6 +50,10 @@ export function ProposalEditor({
   const [hasPassword, setHasPassword] = React.useState(initialHasPassword);
   const [pwInput, setPwInput] = React.useState("");
   const [pwBusy, setPwBusy] = React.useState(false);
+  // Adjuntos que viajan con la propuesta (portafolio, casos…): se ven en el portal del cliente.
+  const [adjuntos, setAdjuntos] = React.useState<AdjuntoPropuesta[]>(initialAttachments);
+  const [adjBusy, setAdjBusy] = React.useState(false);
+  const [adjError, setAdjError] = React.useState<string | null>(null);
   // Puente a facturación: la cotización nacida de esta propuesta.
   const [quoteRef, setQuoteRef] = React.useState(initialQuote);
   const [converting, setConverting] = React.useState(false);
@@ -57,6 +62,31 @@ export function ProposalEditor({
   const [saveState, setSaveState] = React.useState<"idle" | "saving" | "saved">("idle");
   const dirtyRef = React.useRef(false);
   const { confirm, dialog } = useConfirmDialog();
+
+  // ── Adjuntos ── subir al NAS (con el estado optimista al terminar) y quitar.
+  const subirAdjunto = async (file: File) => {
+    setAdjError(null);
+    setAdjBusy(true);
+    try {
+      const fd = new FormData();
+      fd.set("file", file);
+      const nuevo = await subirAdjuntoPropuesta(id, fd);
+      if (nuevo) setAdjuntos((prev) => [...prev, nuevo]);
+    } catch (e) {
+      setAdjError(e instanceof Error ? e.message : "No se pudo subir el archivo");
+    } finally {
+      setAdjBusy(false);
+    }
+  };
+  const quitarAdjunto = async (attId: string) => {
+    setAdjuntos((prev) => prev.filter((a) => a.id !== attId));
+    try {
+      await quitarAdjuntoPropuesta(attId);
+    } catch {
+      router.refresh(); // si el servidor lo rechaza, reflejar el estado real
+    }
+  };
+  const fmtBytes = (n: number) => (n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
 
   // Autoguardado de bloques (debounce). Solo tras la primera edición real.
   React.useEffect(() => {
@@ -295,6 +325,33 @@ export function ProposalEditor({
               ) : null}
             </div>
             <p className="mt-1.5 text-[11px] text-muted-foreground">El cliente deberá escribirla para ver la propuesta. Compártela por un canal aparte del enlace.</p>
+          </div>
+
+          {/* Adjuntos: archivos que VIAJAN con la propuesta (portafolio, casos, contrato…). El
+              cliente los descarga desde el portal. Se suben aparte de «Guardar ajustes». */}
+          <div className="rounded-md border border-border p-3">
+            <div className="flex items-center justify-between">
+              <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground"><Paperclip className="size-3.5" /> Adjuntos ({adjuntos.length})</span>
+              <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent">
+                {adjBusy ? <Loader2 className="size-3.5 animate-spin" /> : <Upload className="size-3.5" />} Subir archivo
+                <input type="file" className="hidden" disabled={adjBusy} onChange={(e) => { const f = e.target.files?.[0]; if (f) void subirAdjunto(f); e.target.value = ""; }} />
+              </label>
+            </div>
+            {adjuntos.length ? (
+              <ul className="mt-2 space-y-1.5">
+                {adjuntos.map((a) => (
+                  <li key={a.id} className="flex items-center gap-2 rounded-md border border-border bg-muted/20 px-2.5 py-1.5 text-sm">
+                    <FileText className="size-4 shrink-0 text-muted-foreground" />
+                    <a href={`/api/proposal-attachment/${a.id}`} className="min-w-0 flex-1 truncate hover:underline" title="Descargar">{a.name}</a>
+                    <span className="shrink-0 text-[11px] text-muted-foreground">{fmtBytes(a.size)}</span>
+                    <button type="button" onClick={() => quitarAdjunto(a.id)} aria-label="Quitar adjunto" className="shrink-0 text-muted-foreground hover:text-destructive"><Trash2 className="size-3.5" /></button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-1.5 text-[11px] text-muted-foreground">Portafolio, casos de éxito, contrato… El cliente los descarga desde el portal. Máximo 25 MB por archivo.</p>
+            )}
+            {adjError ? <p className="mt-1.5 text-[11px] text-destructive">{adjError}</p> : null}
           </div>
 
           <div className="flex justify-end">

@@ -47,7 +47,10 @@ export default async function PropuestaPublicaPage({ params }: { params: Promise
   const id = verifyProposalToken(token);
   if (!id) return <PublicLinkInvalid />;
 
-  const p = await db.proposal.findUnique({ where: { id } });
+  const p = await db.proposal.findUnique({
+    where: { id },
+    include: { attachments: { orderBy: { createdAt: "asc" }, select: { id: true, name: true } } },
+  });
   if (!p) return <PublicLinkInvalid />;
 
   const brand = { ...BRAND_DEFAULT, ...((p.brand as unknown as Brand) ?? {}) };
@@ -112,6 +115,30 @@ export default async function PropuestaPublicaPage({ params }: { params: Promise
       <div className="mx-auto max-w-3xl overflow-hidden rounded-2xl shadow-sm print:rounded-none print:shadow-none">
         <ProposalRenderer blocks={blocks} brand={brand} />
       </div>
+
+      {/* Documentos adjuntos: viajan con la propuesta (portafolio, casos, contrato…). El token
+          firmado autoriza la descarga sin sesión. Se ocultan al imprimir. */}
+      {p.attachments.length ? (
+        <div className="mx-auto mt-4 max-w-3xl px-4 print:hidden">
+          <div className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-neutral-500">Documentos adjuntos</p>
+            <ul className="space-y-1.5">
+              {p.attachments.map((a) => (
+                <li key={a.id}>
+                  <a
+                    href={`/api/proposal-attachment/${a.id}?t=${encodeURIComponent(token)}`}
+                    className="flex items-center gap-2 rounded-lg border border-neutral-200 px-3 py-2 text-sm text-neutral-800 transition-colors hover:border-neutral-300 hover:bg-neutral-50"
+                  >
+                    <span aria-hidden>📎</span>
+                    <span className="min-w-0 flex-1 truncate">{a.name}</span>
+                    <span className="shrink-0 text-xs text-neutral-400">Descargar</span>
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      ) : null}
 
       {!decided && !expired ? (
         <div className="mx-auto mt-6 max-w-3xl px-4 print:hidden">

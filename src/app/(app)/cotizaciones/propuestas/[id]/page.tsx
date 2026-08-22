@@ -17,7 +17,13 @@ export default async function PropuestaEditorPage({ params }: { params: Promise<
   const [p, clients] = await Promise.all([
     // `quote` incluida: si la propuesta ya se convirtió, el editor enlaza a la cotización
     // en vez de ofrecer crearla otra vez.
-    db.proposal.findUnique({ where: { id }, include: { quote: { select: { id: true, code: true } } } }),
+    db.proposal.findUnique({
+      where: { id },
+      include: {
+        quote: { select: { id: true, code: true } },
+        attachments: { orderBy: { createdAt: "asc" }, select: { id: true, name: true, size: true, mime: true } },
+      },
+    }),
     db.client.findMany({ where: accessibleClientWhere(session), orderBy: { name: "asc" }, select: { id: true, name: true, emoji: true } }),
   ]);
   if (!p) notFound();
@@ -43,6 +49,7 @@ export default async function PropuestaEditorPage({ params }: { params: Promise<
       rejection={p.rejectedAt ? { name: p.rejectedByName, email: p.rejectedByEmail, at: new Date(p.rejectedAt).toISOString(), reason: p.rejectReason } : null}
       initialQuote={p.quote ? { id: p.quote.id, code: p.quote.code } : null}
       clients={clients.map((c) => ({ id: c.id, name: c.name, emoji: c.emoji }))}
+      initialAttachments={p.attachments.map((a) => ({ id: a.id, name: a.name, size: a.size, mime: a.mime }))}
       publicUrl={publicUrl}
     />
   );
