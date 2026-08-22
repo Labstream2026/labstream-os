@@ -359,7 +359,10 @@ body.t-light #navprev,body.t-light #navnext{border-color:rgba(0,0,0,.16);backgro
    scroller que no es la ventana, el smooth nativo + snap CONGELAN el scroll programático en
    Chrome; el enganche y el suave los hace el motor por JS (rAF) escribiendo scrollTop directo. */
 html,body{height:100%!important;min-height:0!important;overflow:hidden!important;margin:0!important}
-main#main{height:100vh;height:100dvh;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch}
+main#main{height:100vh;height:100dvh;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;scroll-snap-type:none!important;scroll-behavior:auto!important}
+/* Anular el snap-align que traen las <section> del calco: con el motor por rAF, el snap nativo
+   PELEA con los scrollTop intermedios (los imanta a un borde) y traba la animación. */
+main#main > section{scroll-snap-align:none!important;scroll-snap-stop:normal!important}
 `;
 
 export const DECK_ENGINE = `
