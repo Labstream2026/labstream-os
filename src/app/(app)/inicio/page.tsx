@@ -20,7 +20,7 @@ export default async function InicioClientePage() {
   if (!session) redirect("/login");
   if (session.role !== "cliente") redirect("/");
 
-  const [data, membership] = await Promise.all([
+  const [data, membership, me] = await Promise.all([
     getClientHomeData({ id: session.id, name: session.name }),
     db.clientMember.findFirst({
       where: { userId: session.id },
@@ -36,11 +36,17 @@ export default async function InicioClientePage() {
       },
       orderBy: { createdAt: "asc" },
     }),
+    // Género para el saludo (reutiliza el campo que ya usa Marcebot). null = saludo neutro,
+    // nunca uno que arriesgue equivocarse.
+    db.user.findUnique({ where: { id: session.id }, select: { gender: true } }),
   ]);
 
   const firstName = session.name.split(" ")[0] || session.name;
   const today = formatBogota(new Date(), { weekday: "long", day: "numeric", month: "long" });
+  // Fecha en mayúscula inicial (formatBogota la entrega en minúscula: "viernes, 22 de agosto").
+  const todayCap = today.charAt(0).toUpperCase() + today.slice(1);
   const c = membership?.client ?? null;
+  const saludo = me?.gender === "F" ? `Bienvenida, ${firstName}` : me?.gender === "M" ? `Bienvenido, ${firstName}` : `Hola, ${firstName}`;
 
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6">
@@ -59,24 +65,28 @@ export default async function InicioClientePage() {
           />
         </div>
       ) : null}
-      <header className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Hola, {firstName} 👋</h1>
-          <p className="mt-0.5 text-sm text-muted-foreground">
-            {/* Con la portada arriba, el nombre de la empresa ya está en pantalla: aquí solo la fecha. */}
-            {today}
+      <header className="mb-5 flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{todayCap}</p>
+          <h1 className="mt-0.5 text-2xl font-bold tracking-tight sm:text-3xl">{saludo} 👋</h1>
+          {/* La bienvenida cálida: qué es este espacio y qué va a encontrar. El cliente entra
+              pocas veces — que cada vez se sienta parte de algo y sepa dónde está todo. */}
+          <p className="mt-1.5 max-w-2xl text-sm text-muted-foreground">
+            Este es tu espacio en Labstream: aquí ves cómo avanza tu proyecto, revisas lo que
+            preparamos para ti y hablas con el equipo cuando lo necesites.
           </p>
         </div>
         {hasPermission(session, "crear_proyectos") ? (
           <Link
             href="/proyectos/nuevo"
-            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-sm font-medium hover:bg-accent"
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-sm font-medium hover:bg-accent"
           >
             <Plus className="size-4" /> Nuevo proyecto
           </Link>
         ) : null}
       </header>
 
+      {/* Sub-nav SOLO en móvil (md:hidden): en escritorio manda el rail de la izquierda. */}
       <ClientPortalNav active="inicio" />
       <ClientHomeView data={data} />
     </div>

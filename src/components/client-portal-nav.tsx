@@ -2,9 +2,10 @@ import Link from "next/link";
 import { Home, Inbox, FolderCheck, MessageSquarePlus, FileText } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-// Sub-navegación del PORTAL del cliente: pestañas propias entre sus 4 superficies.
-// Vive dentro de las páginas (no en la barra lateral) para que el portal se sienta
-// un espacio propio y coherente, en móvil y escritorio.
+// Sub-navegación del PORTAL del cliente: pestañas propias entre sus superficies.
+// SOLO MÓVIL (md:hidden): en escritorio la navegación es el rail de la izquierda, y estas
+// píldoras repetían esas mismas entradas justo debajo de la bienvenida —redundancia que
+// sobraba—. En móvil no hay rail visible, así que aquí siguen siendo la navegación del portal.
 const TABS = [
   { key: "inicio", label: "Inicio", href: "/inicio", icon: Home },
   { key: "entregas", label: "Mis entregas", href: "/mis-entregas", icon: Inbox },
@@ -17,7 +18,7 @@ export type ClientPortalTab = (typeof TABS)[number]["key"];
 
 export function ClientPortalNav({ active }: { active: ClientPortalTab }) {
   return (
-    <nav aria-label="Portal del cliente" className="-mx-1 mb-5 flex gap-1.5 overflow-x-auto px-1 pb-0.5">
+    <nav aria-label="Portal del cliente" className="-mx-1 mb-5 flex gap-1.5 overflow-x-auto px-1 pb-0.5 md:hidden">
       {TABS.map((t) => {
         const Icon = t.icon;
         const isActive = t.key === active;
