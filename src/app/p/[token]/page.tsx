@@ -3,11 +3,9 @@ import { db } from "@/lib/db";
 import { verifyProposalToken, verifyProposalUnlock } from "@/lib/proposals/token";
 import { PublicLinkInvalid } from "@/components/public-link-invalid";
 import { ProposalGate } from "./gate";
-import { Logo } from "@/components/brand/logo";
 import { effectiveStatus, BRAND_DEFAULT, type Block, type Brand, type ProposalStatus } from "@/lib/proposals/types";
-import { ProposalRenderer } from "@/app/(app)/cotizaciones/propuestas/proposal-renderer";
+import { DeckView } from "@/components/proposals/deck-view";
 import { sanitizeBlockBodies } from "@/lib/proposals/html-sanitize";
-import { PrintButton } from "@/components/print-button";
 import { AcceptProposal } from "./accept";
 
 export const dynamic = "force-dynamic";
@@ -85,72 +83,53 @@ export default async function PropuestaPublicaPage({ params }: { params: Promise
   // Decidida = el cliente ya respondió (sí o no): no se le vuelve a pedir que decida.
   const decided = accepted || rejected;
 
-  // Un solo diseño: el documento editorial premium (se retiraron los temas "cine" y
-  // "presentación"). La propuesta se muestra como una "hoja" centrada; el renderer pinta su
-  // propio fondo crema y las secciones —incluidos los fondos de video/imagen— llenan la hoja.
-  return (
-    <div className="min-h-screen py-8 print:bg-white print:py-0" style={{ background: "#eceae4" }}>
-      <div className="mx-auto mb-4 flex max-w-3xl flex-wrap items-center justify-between gap-3 px-4 print:hidden">
-        <div>
-          <p className="text-sm font-semibold text-neutral-800">{brand.company}</p>
-          <p className="text-xs text-neutral-500">{brand.tagline}</p>
-        </div>
-        <PrintButton label="Descargar PDF" />
-      </div>
+  // El cliente ve la propuesta como un DECK a pantalla completa (idéntico a /contenido/): la
+  // decisión (aceptar/rechazar), los adjuntos y el pie van DESPUÉS del deck, como zona final —
+  // se llega deslizando tras la última diapositiva. Estilos en línea para no chocar con el CSS
+  // del deck (que redefine clases genéricas como .grid/.card).
+  const decision = (
+    <div style={{ background: "#121110", color: "#F0ECE5", padding: "clamp(40px,7vw,72px) 20px 72px", fontFamily: "'Inter',system-ui,sans-serif" }}>
+      <div style={{ maxWidth: 640, margin: "0 auto", textAlign: "center" }}>
+        {accepted ? (
+          <p style={{ background: "rgba(16,185,129,.12)", border: "1px solid rgba(16,185,129,.3)", color: "#6ee7b7", borderRadius: 14, padding: "16px 20px", fontWeight: 500 }}>
+            ✅ Aceptaste esta propuesta. ¡Gracias! Nos pondremos en contacto.
+          </p>
+        ) : rejected ? (
+          <p style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.14)", color: "rgba(240,236,229,.78)", borderRadius: 14, padding: "16px 20px", fontWeight: 500 }}>
+            Registramos tu respuesta. Gracias por contarnos el motivo.
+          </p>
+        ) : expired ? (
+          <p style={{ background: "rgba(244,63,94,.12)", border: "1px solid rgba(244,63,94,.3)", color: "#fda4af", borderRadius: 14, padding: "16px 20px", fontWeight: 500 }}>
+            Esta propuesta venció. Escríbenos para actualizarla.
+          </p>
+        ) : (
+          <AcceptProposal token={token} accent={brand.accent} dark />
+        )}
 
-      {accepted ? (
-        <div className="mx-auto mb-4 max-w-3xl rounded-md bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700 print:hidden">
-          ✅ Aceptaste esta propuesta. ¡Gracias! Nos pondremos en contacto.
-        </div>
-      ) : rejected ? (
-        <div className="mx-auto mb-4 max-w-3xl rounded-md bg-neutral-100 px-4 py-3 text-sm font-medium text-neutral-600 print:hidden">
-          Registramos tu respuesta. Gracias por contarnos el motivo.
-        </div>
-      ) : expired ? (
-        <div className="mx-auto mb-4 max-w-3xl rounded-md bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700 print:hidden">
-          Esta propuesta venció. Escríbenos para actualizarla.
-        </div>
-      ) : null}
-
-      <div className="mx-auto max-w-3xl overflow-hidden rounded-2xl shadow-sm print:rounded-none print:shadow-none">
-        <ProposalRenderer blocks={blocks} brand={brand} />
-      </div>
-
-      {/* Documentos adjuntos: viajan con la propuesta (portafolio, casos, contrato…). El token
-          firmado autoriza la descarga sin sesión. Se ocultan al imprimir. */}
-      {p.attachments.length ? (
-        <div className="mx-auto mt-4 max-w-3xl px-4 print:hidden">
-          <div className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm">
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-neutral-500">Documentos adjuntos</p>
-            <ul className="space-y-1.5">
+        {p.attachments.length ? (
+          <div style={{ marginTop: 32, textAlign: "left" }}>
+            <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: "rgba(240,236,229,.5)", marginBottom: 10 }}>Documentos adjuntos</p>
+            <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 8 }}>
               {p.attachments.map((a) => (
                 <li key={a.id}>
                   <a
                     href={`/api/proposal-attachment/${a.id}?t=${encodeURIComponent(token)}`}
-                    className="flex items-center gap-2 rounded-lg border border-neutral-200 px-3 py-2 text-sm text-neutral-800 transition-colors hover:border-neutral-300 hover:bg-neutral-50"
+                    style={{ display: "flex", alignItems: "center", gap: 10, border: "1px solid rgba(255,255,255,.16)", borderRadius: 12, padding: "10px 14px", color: "#F0ECE5", textDecoration: "none", fontSize: 14 }}
                   >
                     <span aria-hidden>📎</span>
-                    <span className="min-w-0 flex-1 truncate">{a.name}</span>
-                    <span className="shrink-0 text-xs text-neutral-400">Descargar</span>
+                    <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.name}</span>
+                    <span style={{ flexShrink: 0, fontSize: 12, opacity: 0.55 }}>Descargar</span>
                   </a>
                 </li>
               ))}
             </ul>
           </div>
-        </div>
-      ) : null}
+        ) : null}
 
-      {!decided && !expired ? (
-        <div className="mx-auto mt-6 max-w-3xl px-4 print:hidden">
-          <AcceptProposal token={token} accent={brand.accent} />
-        </div>
-      ) : null}
-
-      {/* Pie discreto de marca: "Hecho con Labstream". */}
-      <div className="mx-auto mt-8 flex max-w-3xl items-center justify-center gap-1.5 px-4 text-xs text-neutral-400 print:hidden">
-        <span>Hecho con</span>
-        <Logo className="h-3.5 opacity-70" alt="Labstream Studio" />
+        <div style={{ marginTop: 32, fontSize: 12, opacity: 0.45 }}>Hecho con {brand.company}</div>
       </div>
     </div>
   );
+
+  return <DeckView blocks={blocks} brand={brand} footer={decision} />;
 }

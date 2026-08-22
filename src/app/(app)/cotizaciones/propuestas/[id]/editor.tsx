@@ -60,6 +60,9 @@ export function ProposalEditor({
   const [convertError, setConvertError] = React.useState<string | null>(null);
   const [copied, setCopied] = React.useState(false);
   const [saveState, setSaveState] = React.useState<"idle" | "saving" | "saved">("idle");
+  // La vista previa completa es el DECK en un iframe (misma cara que ve el cliente). El nonce
+  // fuerza recargarlo para reflejar lo último guardado (el editor autoguarda).
+  const [previewNonce, setPreviewNonce] = React.useState(0);
   const dirtyRef = React.useRef(false);
   const { confirm, dialog } = useConfirmDialog();
 
@@ -360,10 +363,17 @@ export function ProposalEditor({
         </div>
       ) : null}
 
-      {/* Documento */}
+      {/* Vista previa: el DECK a pantalla completa (lo que ve el cliente), en un iframe aislado
+          del Tailwind de la app. Recarga la última versión guardada con «↻». */}
       {preview ? (
-        <div className="overflow-hidden rounded-2xl border border-border">
-          <ProposalRenderer blocks={blocks} brand={brand} />
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-muted-foreground">Así lo ve el cliente. Deslízalo con la rueda o las flechas.</p>
+            <button onClick={() => setPreviewNonce((n) => n + 1)} className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs font-medium hover:bg-accent" title="Recargar con lo último guardado">↻ Recargar</button>
+          </div>
+          <div className="overflow-hidden rounded-2xl border border-border bg-black" style={{ height: "min(82vh, 900px)" }}>
+            <iframe src={`/propuesta-deck/${id}?n=${previewNonce}`} title="Vista previa del deck" className="h-full w-full" style={{ border: 0 }} />
+          </div>
         </div>
       ) : (
         <div className="space-y-3">
