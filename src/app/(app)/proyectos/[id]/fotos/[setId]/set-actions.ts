@@ -90,10 +90,13 @@ export async function toggleFotoExcluida(photoId: string): Promise<{ ok: boolean
     select: { excludedAt: true, deliverableId: true },
   });
   if (!photo) noAutorizado();
-  const { set } = await ensureSet(photo.deliverableId, "gestionar");
+  await ensureSet(photo.deliverableId, "gestionar");
   const excluded = !photo.excludedAt;
   await db.deliverablePhoto.update({ where: { id: photoId }, data: { excludedAt: excluded ? new Date() : null } });
-  refresh(set.projectId, set.id);
+  // SIN refresh a propósito: el estudio actualiza optimista, y revalidar aquí hacía que CADA
+  // clic de curaduría regenerara la página entera (con 3000 fotos, ~6000 firmas HMAC y MBs de
+  // payload POR CLIC, decenas de veces por minuto). La página es dinámica: la próxima
+  // navegación trae el estado fresco igual. Solo revalidan las acciones estructurales.
   return { ok: true, excluded };
 }
 
@@ -140,19 +143,22 @@ export async function hacerPortadaSet(photoId: string): Promise<ResultadoSet> {
 export async function toggleMarcaResuelta(photoId: string): Promise<{ ok: boolean; resuelta?: boolean }> {
   const photo = await db.deliverablePhoto.findUnique({ where: { id: photoId }, select: { deliverableId: true, resolvedAt: true } });
   if (!photo) noAutorizado();
-  const { session, set } = await ensureSet(photo.deliverableId, "escribir");
+  const { session } = await ensureSet(photo.deliverableId, "escribir");
   const resuelta = !photo.resolvedAt;
   await db.deliverablePhoto.update({
     where: { id: photoId },
     data: { resolvedAt: resuelta ? new Date() : null, resolvedById: resuelta ? session.id : null },
   });
-  refresh(set.projectId, set.id);
+  // Sin refresh: mismo motivo que toggleFotoExcluida (optimista + página dinámica).
   return { ok: true, resuelta };
 }
 
-// Borra una foto del set. LOCAL: también su archivo del disco de la app. OPS: SOLO el registro —
-// el original sigue en Operaciones_LAB intacto (la app no borra nada de la share desde aquí;
-// para eso está el explorador /operaciones con su papelera #recycle).
+// Borra una foto del set. El FileAsset va a la PAPELERA (deletedAt, la convención de la casa):
+// el byte-gate lo corta al instante y el barredor purga a los 30 días — que para LOCAL borra
+// también los bytes (antes se hacía delete directo de la fila y los bytes quedaban HUÉRFANOS
+// para siempre: un set de 500 fotos de 25 MB dejaba ~12 GB muertos en el NAS). Para OPS el
+// barredor NO toca el disco: el original sigue en Operaciones_LAB intacto (la app no borra nada
+// de la share desde aquí; para eso está el explorador /operaciones con su papelera #recycle).
 export async function borrarFotoSet(photoId: string): Promise<ResultadoSet> {
   const photo = await db.deliverablePhoto.findUnique({
     where: { id: photoId },
@@ -161,7 +167,9 @@ export async function borrarFotoSet(photoId: string): Promise<ResultadoSet> {
   if (!photo) noAutorizado();
   const { set } = await ensureSet(photo.deliverableId, "gestionar");
   await db.deliverablePhoto.delete({ where: { id: photoId } });
-  if (photo.fileAssetId) await db.fileAsset.delete({ where: { id: photo.fileAssetId } }).catch(() => {});
+  if (photo.fileAssetId) {
+    await db.fileAsset.update({ where: { id: photo.fileAssetId }, data: { deletedAt: new Date() } }).catch(() => {});
+  }
   refresh(set.projectId, set.id);
   return { ok: true, message: photo.fileAsset?.kind === "OPS" ? "Quitada del set. El archivo sigue en Operaciones_LAB." : undefined };
 }

@@ -13,8 +13,13 @@ export function ReviewOnboarding({ isPhoto = false, draftMode = false }: { isPho
 
   React.useEffect(() => {
     try {
-      if (!localStorage.getItem(TOUR_KEY)) setOpen(true);
-    } catch { /* sin localStorage */ }
+      if (localStorage.getItem(TOUR_KEY)) return;
+    } catch {
+      return; // sin localStorage: mejor no repetir el tour en cada visita
+    }
+    // Diferido a propósito (regla del repo: sin setState síncrono en el cuerpo de un efecto).
+    const id = window.setTimeout(() => setOpen(true), 0);
+    return () => window.clearTimeout(id);
   }, []);
 
   const close = () => {
@@ -27,7 +32,7 @@ export function ReviewOnboarding({ isPhoto = false, draftMode = false }: { isPho
   const steps = isPhoto
     ? [
         { n: 1, t: "Acá están tus fotos — recórrelas con calma" },
-        { n: 2, t: "Marca ♥ las que te gustan y ✗ las que no" },
+        { n: 2, t: "Marca ♥ las que te gustan — y dentro de cada foto puedes comentar o descartar" },
         { n: 3, t: draftMode ? "Es un borrador: tu selección y tus notas guían la edición" : "Al final, aprueba tu selección o pide cambios" },
       ]
     : [

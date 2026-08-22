@@ -382,6 +382,34 @@ async function podarOpsCache(): Promise<void> {
   }
 }
 
+// ── Fábrica acotada de miniaturas ──
+// El camino feliz viene calentado desde la subida/importación, pero si el caché falta (poda
+// LRU, volumen recreado, redeploy), abrir una galería dispara N fabricaciones concurrentes y
+// CADA UNA carga el original entero a RAM (25-60 MB con la 5Ds) antes de sharp — y con
+// HEIC/RAW además un ffmpeg por petición (spawn: ni el pool de libuv ni sharp.concurrency lo
+// acotan). 30 celdas de un grid = ~1 GB de picos + 30 forks: el patrón de OOM que ya tumbó el
+// contenedor. Dos piezas: un semáforo global para fabricaciones DISTINTAS, y un mapa de
+// promesas en vuelo para que dos peticiones de la MISMA foto esperen UNA fabricación.
+const FABRICA_PLAZAS = 3;
+let fabricaOcupadas = 0;
+const fabricaCola: (() => void)[] = [];
+const fabricaEnVuelo = new Map<string, Promise<Buffer | null>>();
+
+async function conPlazaDeFabrica<T>(fn: () => Promise<T>): Promise<T> {
+  // while (no if): al despertar se RECHECA — un recién llegado pudo colarse en la plaza antes
+  // de que corriera esta microtarea, y sin el recheck el tope se sobrepasaría.
+  while (fabricaOcupadas >= FABRICA_PLAZAS) {
+    await new Promise<void>((res) => fabricaCola.push(res));
+  }
+  fabricaOcupadas++;
+  try {
+    return await fn();
+  } finally {
+    fabricaOcupadas--;
+    fabricaCola.shift()?.();
+  }
+}
+
 export async function opsThumb(rel: string, maxEdge = 640): Promise<Buffer | null> {
   const norm = normalizeOpsRel(rel);
   // De qué archivo sale la miniatura: de la imagen misma, o del póster que dejó la fábrica si
@@ -399,7 +427,8 @@ export async function opsThumb(rel: string, maxEdge = 640): Promise<Buffer | nul
     if (!puedeHacerPoster(norm)) return null;
     const stVideo = await statOps(norm);
     if (!stVideo || stVideo.dir || stVideo.size == null) return null;
-    return posterDeVideo(await opsAbs(norm), { mtimeMs: stVideo.mtimeMs, size: stVideo.size }, maxEdge);
+    const absVideo = await opsAbs(norm);
+    return conPlazaDeFabrica(() => posterDeVideo(absVideo, { mtimeMs: stVideo.mtimeMs, size: stVideo.size! }, maxEdge));
   }
 
   if (!st || st.dir) return null;
@@ -410,12 +439,28 @@ export async function opsThumb(rel: string, maxEdge = 640): Promise<Buffer | nul
   } catch {
     /* no está cacheada aún */
   }
-  const buf = await readOps(fuente);
-  const webp = await optimizeToWebp(buf, { maxEdge });
-  if (!webp) return null;
-  await writeRelBuffer(cacheRel, webp);
-  void podarOpsCache().catch(() => {}); // mantiene el caché acotado sin bloquear la respuesta
-  return webp;
+  // Fabricación deduplicada: si otra petición ya está fabricando ESTA misma clave, se espera
+  // esa promesa en vez de leer el original otra vez.
+  const enVuelo = fabricaEnVuelo.get(cacheRel);
+  if (enVuelo) return enVuelo;
+  const fabricacion = conPlazaDeFabrica(async () => {
+    // Recheck del caché DENTRO de la plaza: mientras esperábamos turno, otro pudo terminarla.
+    try {
+      return await readBuffer(cacheRel);
+    } catch {
+      /* sigue sin estar */
+    }
+    const buf = await readOps(fuente);
+    const webp = await optimizeToWebp(buf, { maxEdge });
+    if (!webp) return null;
+    await writeRelBuffer(cacheRel, webp);
+    void podarOpsCache().catch(() => {}); // mantiene el caché acotado sin bloquear la respuesta
+    return webp;
+  }).finally(() => {
+    fabricaEnVuelo.delete(cacheRel);
+  });
+  fabricaEnVuelo.set(cacheRel, fabricacion);
+  return fabricacion;
 }
 
 // Ocupación del volumen que respalda Operaciones_LAB (statfs del mount): la Biblioteca

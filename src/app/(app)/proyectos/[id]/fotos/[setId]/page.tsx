@@ -6,7 +6,7 @@ import { getSession, hasPermission } from "@/lib/auth";
 import { canAccessProject, canManageProject, canWriteProject } from "@/lib/project-access";
 import { signReviewToken } from "@/lib/review-token";
 import { deliverableStatusMeta } from "@/lib/ui";
-import { photoThumbSrc, photoDownloadSrc, photoMarkSrc } from "@/lib/deliverable-photo";
+import { photoThumbSrc, photoDownloadSrc, photoLightboxSrc, photoMarkSrc } from "@/lib/deliverable-photo";
 import { opsEnabled } from "@/lib/nas-ops";
 import { isEmailEnabled } from "@/lib/email";
 import { toWhatsappNumber } from "@/lib/whatsapp/send";
@@ -61,6 +61,9 @@ export default async function SetFotosPage({ params }: { params: Promise<{ id: s
     id: p.id,
     filename: p.filename,
     src: photoThumbSrc(p),
+    // Vista 1600 px para «Ver grande» (instantánea, y un RAW se ve como WebP); el ORIGINAL
+    // queda para «Descargar original» — antes ver grande = bajar 25-60 MB, y un CR3 ni se abría.
+    xlSrc: photoLightboxSrc(p),
     fullSrc: photoDownloadSrc(p),
     seccion: p.section,
     // Proporción para la cuadrícula justificada; sin dimensiones (fotos viejas o de Drive), 3:2.

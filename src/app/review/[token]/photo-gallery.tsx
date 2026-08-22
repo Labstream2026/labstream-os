@@ -5,6 +5,8 @@ import { createPortal } from "react-dom";
 import { ChevronDown, ChevronLeft, ChevronRight, Download, Heart, ImageOff, Loader2, MessageSquare, Pencil, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CoverAnnotator } from "@/components/covers/cover-annotator";
+import { DetailsAutoClose } from "@/components/details-auto-close";
+import { cerrarMenu } from "@/components/ui/barra-menu";
 import { setPhotoDrawing, setPhotoPick } from "./actions";
 
 // ── La galería de selección del cliente ──
@@ -55,6 +57,15 @@ function FotoImg({ src, alt, className, onDims }: { src: string; alt: string; cl
       src={src}
       alt={alt}
       loading="lazy"
+      // Una imagen ya en caché dispara `load` ANTES de que React enganche el handler (SSR +
+      // hidratación) y sin esto quedaba invisible (opacity-0) para siempre en la segunda visita.
+      ref={(el) => {
+        if (!el || !el.complete || cargada || rota) return;
+        if (el.naturalWidth > 0) {
+          setCargada(true);
+          onDims?.(el);
+        } else setRota(true);
+      }}
       onLoad={(e) => {
         setCargada(true);
         onDims?.(e.currentTarget);
@@ -104,13 +115,14 @@ export function PhotoGallery({
   // Aviso cuando un guardado NO llegó. Antes el error se tragaba: el cliente veía su elección
   // puesta (anillo naranja) pero el servidor nunca la registraba → se perdía en silencio. Ahora
   // se REVIERTE el cambio optimista y se avisa para que reintente. (La sala monta OfflineProvider;
-  // enrutar esto por la cola offline queda como mejora aparte.)
-  const [aviso, setAviso] = React.useState<string | null>(null);
+  // enrutar esto por la cola offline queda como mejora aparte.) `tono: "info"` reutiliza el mismo
+  // canal para confirmaciones neutras («Preparando tu descarga…»).
+  const [aviso, setAviso] = React.useState<{ msg: string; tono: "error" | "info" } | null>(null);
   const avisoTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-  const mostrarAviso = React.useCallback((msg: string) => {
-    setAviso(msg);
+  const mostrarAviso = React.useCallback((msg: string, tono: "error" | "info" = "error") => {
+    setAviso({ msg, tono });
     if (avisoTimer.current) clearTimeout(avisoTimer.current);
-    avisoTimer.current = setTimeout(() => setAviso(null), 4000);
+    avisoTimer.current = setTimeout(() => setAviso(null), tono === "info" ? 3000 : 4000);
   }, []);
 
   function update(id: string, patch: Partial<GalleryPhoto>) {
@@ -125,9 +137,13 @@ export function PhotoGallery({
     update(p.id, { pick: next });
     startTransition(async () => {
       try {
-        await setPhotoPick(token, p.id, next, p.clientNote ?? undefined);
+        const r = await setPhotoPick(token, p.id, next, p.clientNote ?? undefined);
+        if (!r.ok) {
+          update(p.id, { pick: antes }); // revertir: no quedó guardado
+          mostrarAviso(r.message);
+        }
       } catch {
-        update(p.id, { pick: antes }); // revertir: no quedó guardado
+        update(p.id, { pick: antes });
         mostrarAviso("No pudimos guardar tu elección. Revisa tu conexión y vuelve a tocarla.");
       }
     });
@@ -139,7 +155,11 @@ export function PhotoGallery({
     update(p.id, { clientNote: note });
     startTransition(async () => {
       try {
-        await setPhotoPick(token, p.id, p.pick, note);
+        const r = await setPhotoPick(token, p.id, p.pick, note);
+        if (!r.ok) {
+          update(p.id, { clientNote: antes });
+          mostrarAviso(r.message);
+        }
       } catch {
         update(p.id, { clientNote: antes });
         mostrarAviso("No pudimos guardar tu comentario. Revisa tu conexión y reinténtalo.");
@@ -156,7 +176,14 @@ export function PhotoGallery({
     update(p.id, { marca: drawing, ...(note ? { clientNote: note } : {}) });
     startTransition(async () => {
       try {
-        await setPhotoDrawing(token, p.id, drawing, note || undefined);
+        // La acción devuelve resultado TIPADO para los fallos esperados (rate-limit, foto
+        // excluida a mitad de sesión): sin mirarlo, el dibujo se daba por guardado y el
+        // estudio nunca lo recibía — pérdida silenciosa.
+        const r = await setPhotoDrawing(token, p.id, drawing, note || undefined);
+        if (!r.ok) {
+          update(p.id, { marca: antesMarca, clientNote: antesNota });
+          mostrarAviso(r.message);
+        }
       } catch {
         update(p.id, { marca: antesMarca, clientNote: antesNota });
         mostrarAviso("No pudimos guardar tu marca. Revisa tu conexión y vuelve a enviarla.");
@@ -189,23 +216,33 @@ export function PhotoGallery({
   }
   const haySecciones = grupos.some((g) => g.titulo);
 
-  const idxAbierta = abierta ? visibles.findIndex((p) => p.id === abierta) : -1;
-  const fotoAbierta = idxAbierta >= 0 ? visibles[idxAbierta] : null;
+  // La MEMBRESÍA del visor se CONGELA al abrirlo (ids), pero los datos viven: con el filtro
+  // «Sin marcar» activo, dar ♥ dentro del visor sacaba la foto de `visibles` al instante →
+  // idxAbierta -1 → el visor SE CERRABA solo en pleno flujo estrella (filtrar lo pendiente y
+  // decidir una a una). Congelando ids, la foto recién marcada sigue ahí y el filtro se
+  // re-aplica al cerrar.
+  const [idsVisor, setIdsVisor] = React.useState<string[] | null>(null);
+  const porId = new Map(photos.map((p) => [p.id, p] as const));
+  const listaVisor: GalleryPhoto[] =
+    abierta && idsVisor ? (idsVisor.map((id) => porId.get(id)).filter(Boolean) as GalleryPhoto[]) : visibles;
+  const idxAbierta = abierta ? listaVisor.findIndex((p) => p.id === abierta) : -1;
+  const fotoAbierta = idxAbierta >= 0 ? listaVisor[idxAbierta] : null;
 
   // `conNota` = abrir el visor con el campo de comentario ya desplegado (desde el botón 💬 de la
   // cuadrícula: un solo clic para comentar, no dos).
   const [pedirNota, setPedirNota] = React.useState(false);
   function abrir(id: string, conNota = false) {
     setPedirNota(conNota);
+    setIdsVisor(visibles.map((p) => p.id)); // congelar la membresía con el filtro del momento
     setAbierta(id);
   }
   // Sin useCallback a propósito: el compilador de React memoiza solo, y la memoización manual
   // sobre `visibles` (que se re-deriva en cada render) no se puede conservar (lint del repo).
   function navegar(d: number) {
     setAbierta((cur) => {
-      if (!visibles.length) return null;
-      const i = visibles.findIndex((p) => p.id === cur);
-      return visibles[(i + d + visibles.length) % visibles.length].id;
+      if (!listaVisor.length) return null;
+      const i = listaVisor.findIndex((p) => p.id === cur);
+      return listaVisor[(i + d + listaVisor.length) % listaVisor.length].id;
     });
   }
 
@@ -213,15 +250,44 @@ export function PhotoGallery({
 
   return (
     <div className="space-y-5">
+      {/* Cierra los <details data-autoclose> al pulsar fuera / Escape. La sala no monta el shell
+          de (app), así que hay que traerlo aquí — sin él, el menú «Descargar» quedaba abierto. */}
+      <DetailsAutoClose />
       {/* Destino oculto de las descargas: si el ZIP responde error (413 son demasiadas, 429 espera,
           404 sin originales), el JSON carga AQUÍ dentro —invisible— en vez de reemplazar la galería
-          y sacar al cliente de su sala. En éxito, el `attachment` dispara la descarga igual. */}
-      <iframe name="ls-descarga" title="descarga" className="hidden" aria-hidden="true" />
-      {/* Aviso de guardado fallido (antes se perdía en silencio). */}
+          y sacar al cliente de su sala. En éxito, el `attachment` dispara la descarga igual.
+          El onLoad LEE ese JSON (mismo origen) y lo muestra: antes «Descargar» fallaba en silencio
+          y el consejo «baja por tandas» del 413 jamás llegaba al cliente. */}
+      <iframe
+        name="ls-descarga"
+        title="descarga"
+        className="hidden"
+        aria-hidden="true"
+        onLoad={(e) => {
+          try {
+            const texto = e.currentTarget.contentDocument?.body?.textContent?.trim();
+            if (!texto) return; // about:blank inicial o descarga normal (attachment: no navega)
+            const j = JSON.parse(texto) as { error?: string };
+            if (j?.error) mostrarAviso(j.error);
+          } catch {
+            /* no era JSON de error: nada que avisar */
+          }
+        }}
+      />
+      {/* Aviso de guardado fallido (antes se perdía en silencio) o confirmación neutra. Por ENCIMA
+          del visor y del anotador (z-130): con z-50 el aviso quedaba pintado DETRÁS del fondo
+          negro del visor y un ♥ fallido parecía «des-marcarse solo». */}
       {aviso ? (
-        <div role="status" className="pointer-events-none fixed inset-x-0 bottom-20 z-50 flex justify-center px-4">
-          <div className="pointer-events-auto max-w-sm rounded-xl border border-amber-400/40 bg-amber-500/95 px-4 py-2.5 text-center text-[13px] font-medium text-black shadow-lg backdrop-blur">
-            {aviso}
+        <div role="status" className="pointer-events-none fixed inset-x-0 bottom-20 z-[140] flex justify-center px-4">
+          <div
+            className={cn(
+              "pointer-events-auto max-w-sm rounded-xl border px-4 py-2.5 text-center text-[13px] font-medium shadow-lg backdrop-blur",
+              aviso.tono === "info"
+                ? "border-border bg-card/95 text-foreground"
+                : "border-amber-400/40 bg-amber-500/95 text-black",
+            )}
+          >
+            {aviso.msg}
           </div>
         </div>
       ) : null}
@@ -233,6 +299,8 @@ export function PhotoGallery({
             src={coverSrc}
             alt=""
             onLoad={(e) => { e.currentTarget.style.opacity = "1"; }}
+            // En caché, `load` dispara antes de la hidratación: sin esto la portada quedaba invisible.
+            ref={(el) => { if (el && el.complete && el.naturalWidth > 0) el.style.opacity = "1"; }}
             style={{ opacity: 0 }}
             className="absolute inset-0 size-full object-cover transition-opacity duration-[900ms] ease-out motion-reduce:transition-none motion-reduce:!opacity-100"
           />
@@ -323,7 +391,7 @@ export function PhotoGallery({
                     {!soloLectura ? (
                       <div
                         className={cn(
-                          "absolute right-2 top-2 flex gap-1.5 transition-opacity md:opacity-0 md:group-hover:opacity-100",
+                          "absolute right-2 top-2 flex gap-1.5 transition-opacity md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100",
                           (esLiked || conNota) && "md:opacity-100",
                         )}
                       >
@@ -365,12 +433,27 @@ export function PhotoGallery({
           </section>
         ))}
         {visibles.length === 0 ? (
-          <p className="rounded-xl border border-dashed border-border bg-card p-8 text-center text-sm text-muted-foreground">Nada con este filtro.</p>
+          <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border bg-card p-8 text-center text-sm text-muted-foreground">
+            <span>
+              {filtro === "elegidas" ? "Aún no has elegido ninguna — toca el ♥ de tus favoritas." :
+               filtro === "comentadas" ? "Aún no has comentado ninguna foto." :
+               filtro === "sin" ? "¡Ya las miraste todas! 🎉" : "Nada con este filtro."}
+            </span>
+            <button
+              type="button"
+              onClick={() => setFiltro("todas")}
+              className="rounded-full border border-border px-3 py-1 text-xs font-medium hover:text-foreground"
+            >
+              Ver todas
+            </button>
+          </div>
         ) : null}
       </div>
 
-      {/* ── Barra flotante: conteo, filtros y cierre ── */}
-      <div className="pointer-events-none sticky bottom-3 z-30 flex justify-center">
+      {/* ── Barra flotante: conteo, filtros y cierre ──
+          bottom con safe-area: el layout global lleva viewport-fit=cover y sin esto la barra
+          quedaba sobre el home-indicator del iPhone (los toques disparaban el gesto del sistema). */}
+      <div className="pointer-events-none sticky bottom-[max(0.75rem,env(safe-area-inset-bottom))] z-30 flex justify-center">
         <div className="pointer-events-auto flex max-w-full flex-wrap items-center justify-center gap-1.5 rounded-2xl border border-border bg-card/90 px-3 py-2 shadow-2xl backdrop-blur-xl">
           {/* key por conteo → al elegir/quitar, el contador hace un pequeño «pop»: confirmación de
               que la acción viajó (junto al aviso de error, éxito y fallo quedan bien distinguibles). */}
@@ -406,7 +489,7 @@ export function PhotoGallery({
               Drive), y por el token de la sala — sin cuenta. El menú abre HACIA ARRIBA porque la
               barra vive pegada abajo. */}
           {!soloLectura && deliverableId && token && descargables > 0 ? (
-            <details className="relative">
+            <details data-autoclose className="relative">
               <summary className="inline-flex cursor-pointer list-none items-center gap-1.5 rounded-full border border-border px-2.5 py-1 text-xs font-medium text-muted-foreground hover:text-foreground">
                 <Download className="size-3.5" /> Descargar
               </summary>
@@ -414,6 +497,10 @@ export function PhotoGallery({
                 <a
                   href={`/api/fotos/${deliverableId}/zip?que=cliente&t=${encodeURIComponent(token)}`}
                   target="ls-descarga"
+                  onClick={(e) => {
+                    cerrarMenu(e);
+                    mostrarAviso("Preparando tu descarga… el ZIP empieza solo en unos segundos.", "info");
+                  }}
                   className="flex items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-sm hover:bg-muted"
                 >
                   Todas mis fotos <span className="text-xs tabular-nums text-muted-foreground">{descargables}</span>
@@ -422,6 +509,10 @@ export function PhotoGallery({
                   <a
                     href={`/api/fotos/${deliverableId}/zip?que=elegidas&t=${encodeURIComponent(token)}`}
                     target="ls-descarga"
+                    onClick={(e) => {
+                      cerrarMenu(e);
+                      mostrarAviso("Preparando tu descarga… el ZIP empieza solo en unos segundos.", "info");
+                    }}
                     className="flex items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-sm hover:bg-muted"
                   >
                     <span className="inline-flex items-center gap-1.5"><Heart className="size-3.5 fill-primary text-primary" /> Mis elegidas</span>
@@ -450,12 +541,12 @@ export function PhotoGallery({
         <Visor
           foto={fotoAbierta}
           idx={idxAbierta}
-          total={visibles.length}
-          lista={visibles}
+          total={listaVisor.length}
+          lista={listaVisor}
           arDe={arDe}
           soloLectura={soloLectura}
           abrirNota={pedirNota}
-          onCerrar={() => { setAbierta(null); setPedirNota(false); }}
+          onCerrar={() => { setAbierta(null); setPedirNota(false); setIdsVisor(null); }}
           onNavegar={navegar}
           onIr={(id) => setAbierta(id)}
           onPick={setPick}
@@ -501,7 +592,7 @@ function Visor({
   const [notaAbierta, setNotaAbierta] = React.useState(abrirNota || !!(foto.clientNote ?? "").trim());
   const [cargandoImg, setCargandoImg] = React.useState(true); // spinner mientras llega la foto grande
   const filmRef = React.useRef<HTMLDivElement>(null);
-  const touch = React.useRef<number | null>(null);
+  const touch = React.useRef<{ x: number; y: number; ignorar: boolean } | null>(null);
 
   // Lienzo de anotación abierto (portal a <body>: dentro de este overlay con backdrop-blur, un
   // `fixed` anidado quedaría preso del ancestro filtrado — la lección de Portadas 2.0).
@@ -517,6 +608,9 @@ function Visor({
     setVerMarca(true);
     setRayando(false);
     setCargandoImg(true);
+    // El panel de nota SIGUE al contenido: si la foto a la que llegas ya tiene tu comentario,
+    // se enseña (antes era invisible al navegar); si no tiene, se recoge.
+    setNotaAbierta(!!(foto.clientNote ?? "").trim());
   }
 
   // Bloquea el scroll del FONDO mientras el visor está abierto (en móvil, arrastrar sobre los
@@ -571,13 +665,21 @@ function Visor({
       aria-label={`Foto ${idx + 1} de ${total}: ${foto.filename}`}
       className="fixed inset-0 z-50 flex flex-col bg-black/95 backdrop-blur-md animate-in fade-in duration-200 motion-reduce:animate-none"
       onTouchStart={(e) => {
-        touch.current = e.touches[0].clientX;
+        const t = e.target as HTMLElement;
+        // La tira de miniaturas se scrollea en horizontal y el textarea selecciona texto: un
+        // gesto que EMPIEZA ahí no debe cambiar de foto (con el textarea, además, el remonte
+        // por key se comía la nota a medio escribir sin disparar el blur que la guarda).
+        const ignorar = !!(filmRef.current?.contains(t) || t.closest("textarea"));
+        touch.current = { x: e.touches[0].clientX, y: e.touches[0].clientY, ignorar };
       }}
       onTouchEnd={(e) => {
-        if (touch.current === null) return;
-        const dx = e.changedTouches[0].clientX - touch.current;
+        const t0 = touch.current;
         touch.current = null;
-        if (Math.abs(dx) > 48) onNavegar(dx < 0 ? 1 : -1);
+        if (!t0 || t0.ignorar) return;
+        const dx = e.changedTouches[0].clientX - t0.x;
+        const dy = e.changedTouches[0].clientY - t0.y;
+        // Claramente horizontal (no un scroll diagonal): dx manda sobre dy con margen.
+        if (Math.abs(dx) > 48 && Math.abs(dx) > Math.abs(dy) * 1.5) onNavegar(dx < 0 ? 1 : -1);
       }}
     >
       <div className="flex items-center gap-3 px-4 py-3 text-sm text-white/70">
@@ -617,6 +719,7 @@ function Visor({
           src={foto.marca && verMarca ? foto.marca : foto.srcXl}
           alt={foto.filename}
           onLoad={() => setCargandoImg(false)}
+          ref={(el) => { if (el && el.complete && el.naturalWidth > 0 && cargandoImg) setCargandoImg(false); }}
           className={cn(
             "max-h-full min-h-0 max-w-full rounded-lg object-contain shadow-2xl transition-opacity duration-300 motion-reduce:transition-none",
             cargandoImg ? "opacity-0" : "opacity-100",
@@ -632,7 +735,7 @@ function Visor({
         </button>
       </div>
 
-      <div className="flex flex-col items-center gap-3 px-4 pb-4 pt-3">
+      <div className="flex flex-col items-center gap-3 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3">
         {/* Con marcas: alternar entre lo que rayó el cliente y la foto limpia (también en la
             revisión interna — el editor necesita ver ambas). */}
         {foto.marca ? (
@@ -679,9 +782,13 @@ function Visor({
             <button
               type="button"
               onClick={() => setNotaAbierta((v) => !v)}
-              className="inline-flex items-center gap-2 rounded-full border border-white/20 px-4 py-2 text-sm font-medium text-white hover:bg-white/10"
+              className={cn(
+                "inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-medium text-white hover:bg-white/10",
+                (foto.clientNote ?? "").trim() ? "border-primary/60" : "border-white/20",
+              )}
             >
-              <MessageSquare className="size-4" /> Comentar
+              <MessageSquare className={cn("size-4", (foto.clientNote ?? "").trim() && "fill-primary/30 text-primary")} />
+              {(foto.clientNote ?? "").trim() ? "Tu comentario" : "Comentar"}
             </button>
             <button
               type="button"
@@ -716,7 +823,7 @@ function Visor({
               if (e.target.value !== (foto.clientNote ?? "")) onNota(foto, e.target.value);
             }}
             rows={2}
-            placeholder="Cuéntanos qué ves en esta foto… se guarda solo."
+            placeholder="¿Qué te gustaría ajustar en esta foto? Se guarda solo."
             className="w-full max-w-xl rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm text-white outline-none placeholder:text-white/40 focus:border-white/40"
           />
         ) : soloLectura && (foto.clientNote ?? "").trim() ? (

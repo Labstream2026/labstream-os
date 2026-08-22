@@ -253,20 +253,35 @@ export async function addReviewReply(token: string, parentId: string, body: stri
 // El cliente marca una foto de la galería: ME_GUSTA / NO_ME_GUSTA / PENDIENTE (toggle) + nota
 // opcional. Límite generoso porque el cliente puede recorrer muchas fotos seguidas. No revalida
 // la página (la galería actualiza de forma optimista); el valor queda guardado para el equipo.
-export async function setPhotoPick(token: string, photoId: string, pick: string, note?: string) {
+// Resultado TIPADO (no lanza) para los fallos esperados: en producción Next REDACTA el mensaje
+// de un Error lanzado, y un enlace revocado a mitad de sesión se presentaba como «revisa tu
+// conexión» — el cliente reintentaba para siempre. Mismo patrón que setReviewDecision.
+export async function setPhotoPick(
+  token: string,
+  photoId: string,
+  pick: string,
+  note?: string,
+): Promise<{ ok: true } | { ok: false; message: string }> {
   if (!rateLimit(`review-pick:${await rlKey(token)}`, 200, 60_000)) {
-    throw new Error("Demasiadas acciones seguidas. Espera un momento e inténtalo de nuevo.");
+    return { ok: false, message: "Demasiadas acciones seguidas. Espera un momento e inténtalo de nuevo." };
   }
-  const { id: deliverableId } = await resolveDeliverable(token);
+  let deliverableId: string;
+  try {
+    deliverableId = (await resolveDeliverable(token)).id;
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : "El enlace ya no está disponible." };
+  }
   const photo = await db.deliverablePhoto.findUnique({ where: { id: photoId }, select: { deliverableId: true, excludedAt: true } });
-  if (!photo || photo.deliverableId !== deliverableId) throw new Error("Foto no encontrada");
   // Una foto excluida por la curaduría no está en la sala: un id manipulado tampoco la marca.
-  if (photo.excludedAt) throw new Error("Foto no encontrada");
+  if (!photo || photo.deliverableId !== deliverableId || photo.excludedAt) {
+    return { ok: false, message: "Esa foto ya no está en la galería." };
+  }
   const value = pick === "ME_GUSTA" || pick === "NO_ME_GUSTA" ? pick : "PENDIENTE";
   await db.deliverablePhoto.update({
     where: { id: photoId },
     data: { pick: value as never, clientNote: (note ?? "").trim().slice(0, 1000) || null, pickedAt: new Date() },
   });
+  return { ok: true };
 }
 
 // El cliente RAYA la foto (lápiz/flecha/recuadro/texto) para señalar qué cambiaría — el mismo

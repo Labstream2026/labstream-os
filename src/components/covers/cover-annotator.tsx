@@ -290,7 +290,14 @@ export function CoverAnnotator({
       <div className="relative mx-auto max-h-[52vh] min-h-0 w-full max-w-sm" ref={boxRef}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          ref={imgRef}
+          ref={(el) => {
+            imgRef.current = el;
+            // Si la imagen ya estaba en caché, `load` pudo disparar antes de enganchar el handler.
+            if (el && el.complete && el.naturalWidth > 0 && !ready) {
+              setReady(true);
+              redraw();
+            }
+          }}
           src={src}
           alt={name}
           onLoad={() => {

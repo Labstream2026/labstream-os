@@ -1,7 +1,7 @@
 import { db } from "@/lib/db";
 import { signFileToken } from "@/lib/storage";
 import { signReviewToken } from "@/lib/review-token";
-import { photoViewSrc, photoDownloadSrc } from "@/lib/deliverable-photo";
+import { photoThumbSrc, photoDownloadSrc } from "@/lib/deliverable-photo";
 import { DELIVERABLE_TYPE } from "@/lib/ui";
 import { deliveryGroupOf, type DeliveryGroupKey } from "@/lib/delivery-groups";
 
@@ -94,7 +94,9 @@ export async function getDeliveryPackage(projectId: string): Promise<DeliveryPac
           select: { createdAt: true },
         },
         renditions: { orderBy: { position: "asc" }, select: { id: true, format: true, label: true, url: true } },
-        photos: { orderBy: { position: "asc" }, select: { fileAssetId: true, url: true, pick: true }, take: 200 },
+        // Solo las 3 postales de la tarjeta (visibles); los CONTEOS reales van aparte por groupBy —
+        // antes un take:200 hacía que un set de 800 mostrara «200 fotos».
+        photos: { where: { excludedAt: null }, orderBy: { position: "asc" }, select: { fileAssetId: true, url: true }, take: 3 },
       },
     }),
     db.projectCover.findMany({
@@ -107,6 +109,23 @@ export async function getDeliveryPackage(projectId: string): Promise<DeliveryPac
   const coverByDeliverable = new Map(
     approvedCovers.filter((c) => c.deliverableId).map((c) => [c.deliverableId as string, c]),
   );
+
+  // Conteos EXACTOS de los sets de fotos (lo que el cliente ve: sin excluidas), en una sola query.
+  const fotoIds = deliverables.filter((d) => d.type === "FOTOGRAFIA").map((d) => d.id);
+  const conteosFotos = fotoIds.length
+    ? await db.deliverablePhoto.groupBy({
+        by: ["deliverableId", "pick"],
+        where: { deliverableId: { in: fotoIds }, excludedAt: null },
+        _count: { _all: true },
+      })
+    : [];
+  const fotosDe = (id: string) => {
+    const filas = conteosFotos.filter((c) => c.deliverableId === id);
+    return {
+      total: filas.reduce((a, c) => a + c._count._all, 0),
+      liked: filas.find((c) => c.pick === "ME_GUSTA")?._count._all ?? 0,
+    };
+  };
 
   const items: DeliveryItem[] = deliverables.map((d) => {
     const v = d.versions[0] ?? null;
@@ -135,7 +154,9 @@ export async function getDeliveryPackage(projectId: string): Promise<DeliveryPac
       typeLabel: DELIVERABLE_TYPE[d.type] ?? d.type,
       group: deliveryGroupOf(d.type),
       excluded: d.deliveryExcluded,
-      cover: d.coverFileAssetId ? photoViewSrc({ fileAssetId: d.coverFileAssetId, url: null }) : null,
+      // Miniatura 480 (cacheable 1 día): la tarjeta es pequeña y el WebP de 1600 con no-cache
+      // era trabajo del NAS regalado en cada visita.
+      cover: d.coverFileAssetId ? photoThumbSrc({ fileAssetId: d.coverFileAssetId, url: null }) : null,
       coverDownload,
       versionNumber: v?.number ?? null,
       approvedAt: d.decisions[0]?.createdAt ?? v?.internalApprovedAt ?? d.updatedAt,
@@ -144,9 +165,9 @@ export async function getDeliveryPackage(projectId: string): Promise<DeliveryPac
       renditions: d.renditions.map((r) => ({ id: r.id, label: r.label || r.format, url: r.url })),
       photos: isFotos
         ? {
-            count: d.photos.length,
-            liked: d.photos.filter((p) => p.pick === "ME_GUSTA").length,
-            thumbs: d.photos.slice(0, 3).map((p) => photoViewSrc(p, 400)),
+            count: fotosDe(d.id).total,
+            liked: fotosDe(d.id).liked,
+            thumbs: d.photos.map((p) => photoThumbSrc(p)),
             galleryUrl: `/review/${signReviewToken(d.id)}`,
           }
         : null,
@@ -156,7 +177,7 @@ export async function getDeliveryPackage(projectId: string): Promise<DeliveryPac
   const covers: DeliveryCover[] = approvedCovers.map((c) => ({
     id: c.id,
     name: c.name,
-    view: photoViewSrc({ fileAssetId: c.fileAssetId, url: null }, 600),
+    view: photoThumbSrc({ fileAssetId: c.fileAssetId, url: null }),
     download: photoDownloadSrc({ fileAssetId: c.fileAssetId, url: null }),
   }));
 

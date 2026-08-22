@@ -32,6 +32,12 @@ const DE_CARA_AL_CLIENTE = new Set(["ENVIADO_CLIENTE", "CORRECCIONES", "APROBADO
 const MAX_FOTOS = 1000; // sin zip64: techo holgado y honesto
 const MAX_BYTES = 3_800_000_000; // ~3,8 GB — por debajo del límite de zip clásico
 
+// Tope GLOBAL de ZIPs en vuelo: cada stream vivo mantiene UNA foto entera en memoria (hasta
+// ~100 MB con RAW de 5Ds) más un lector contra el bind mount. El rate-limit es por enlace;
+// esto acota el MULTIPLICADOR (cliente + pareja + equipo bajando a la vez) en el NAS.
+let zipsEnVuelo = 0;
+const MAX_ZIPS_EN_VUELO = 3;
+
 const PROJECT_ACCESS_SELECT = {
   isPrivate: true,
   leadId: true,
@@ -161,6 +167,8 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ deliverable
       type: true,
       status: true,
       projectId: true,
+      reviewRevokedAt: true,
+      reviewExpiresAt: true,
       project: { select: { ...PROJECT_ACCESS_SELECT, archivedAt: true } },
       photos: {
         orderBy: [{ position: "asc" }, { createdAt: "asc" }],
@@ -176,6 +184,13 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ deliverable
     // El token autoriza ESTE set (ya verificado), pero el proyecto en papelera o el set aún sin
     // enviar cierran la puerta: material dormido o sin aprobar no se descarga por el enlace.
     if (set.project.archivedAt) return NextResponse.json({ error: "Este material ya no está disponible." }, { status: 403 });
+    // Espejo de resolveDeliverable (actions.ts): revocar o vencer el enlace corta TAMBIÉN la
+    // descarga — antes el ZIP (justo lo más valioso) ignoraba ambos y un enlace filtrado
+    // seguía bajando originales para siempre.
+    if (set.reviewRevokedAt) return NextResponse.json({ error: "Este enlace ya no está disponible." }, { status: 403 });
+    if (set.reviewExpiresAt && set.reviewExpiresAt.getTime() < Date.now()) {
+      return NextResponse.json({ error: "El enlace ha caducado. Escríbenos y lo reactivamos." }, { status: 403 });
+    }
     if (!DE_CARA_AL_CLIENTE.has(set.status)) return NextResponse.json({ error: "Tus fotos aún no están listas para descargar." }, { status: 403 });
   } else {
     const session = await getSession();
@@ -217,6 +232,21 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ deliverable
     actorName: esCliente ? "Cliente (enlace)" : undefined,
     silent: true,
   }).catch(() => {});
+
+  if (zipsEnVuelo >= MAX_ZIPS_EN_VUELO) {
+    return NextResponse.json(
+      { error: "Hay varias descargas en curso. Espera un momento y vuelve a intentar." },
+      { status: 503, headers: { "retry-after": "20" } },
+    );
+  }
+  zipsEnVuelo++;
+  let plazaLiberada = false;
+  const liberarPlaza = () => {
+    if (!plazaLiberada) {
+      plazaLiberada = true;
+      zipsEnVuelo = Math.max(0, zipsEnVuelo - 1);
+    }
+  };
 
   const ahora = dosTime(new Date());
   const usados = new Set<string>();
@@ -266,13 +296,17 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ deliverable
     async pull(controller) {
       try {
         const { value, done } = await iter.next();
-        if (done) controller.close();
-        else controller.enqueue(value);
+        if (done) {
+          liberarPlaza();
+          controller.close();
+        } else controller.enqueue(value);
       } catch (e) {
+        liberarPlaza();
         controller.error(e);
       }
     },
     cancel() {
+      liberarPlaza();
       void iter.return?.(undefined);
     },
   });
