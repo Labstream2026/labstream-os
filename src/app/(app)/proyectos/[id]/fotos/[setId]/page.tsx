@@ -73,6 +73,7 @@ export default async function SetFotosPage({ params }: { params: Promise<{ id: s
     esOps: p.fileAsset?.kind === "OPS",
     // La foto rayada por el cliente: el editor la ve en Resultados tal como la marcó.
     marcaSrc: p.drawnAt ? photoMarkSrc(p.id) : null,
+    resuelta: !!p.resolvedAt,
   }));
   const nextPos = (set.photos.at(-1)?.position ?? -1) + 1;
 

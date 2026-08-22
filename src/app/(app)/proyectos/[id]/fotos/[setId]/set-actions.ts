@@ -133,6 +133,23 @@ export async function hacerPortadaSet(photoId: string): Promise<ResultadoSet> {
   return { ok: true };
 }
 
+// El equipo marca (o desmarca) como RESUELTA la corrección del cliente sobre una foto —su marca
+// dibujada o su comentario— igual que se cierran las correcciones de video. Toggle: pendiente →
+// atendida (sello + quién), atendida → pendiente. El panel de resultados del estudio la atenúa y
+// lleva la cuenta de «N por atender», para que el editor no dependa de la memoria.
+export async function toggleMarcaResuelta(photoId: string): Promise<{ ok: boolean; resuelta?: boolean }> {
+  const photo = await db.deliverablePhoto.findUnique({ where: { id: photoId }, select: { deliverableId: true, resolvedAt: true } });
+  if (!photo) noAutorizado();
+  const { session, set } = await ensureSet(photo.deliverableId, "escribir");
+  const resuelta = !photo.resolvedAt;
+  await db.deliverablePhoto.update({
+    where: { id: photoId },
+    data: { resolvedAt: resuelta ? new Date() : null, resolvedById: resuelta ? session.id : null },
+  });
+  refresh(set.projectId, set.id);
+  return { ok: true, resuelta };
+}
+
 // Borra una foto del set. LOCAL: también su archivo del disco de la app. OPS: SOLO el registro —
 // el original sigue en Operaciones_LAB intacto (la app no borra nada de la share desde aquí;
 // para eso está el explorador /operaciones con su papelera #recycle).
