@@ -355,8 +355,11 @@ body.t-light #navprev,body.t-light #navnext{border-color:rgba(0,0,0,.16);backgro
    rueda, puntos) y el enganche de diapositivas funcionan sin pelear con html/body. La cromática
    fija (#progress/#topbar/#dots/flechas) queda respecto al viewport, que #main llena. Va al final
    para ganar la cascada; solo afecta a las páginas del deck (el <style> es de página). */
-html,body{margin:0!important}
-main#main{height:100vh;height:100dvh;overflow-y:auto;overflow-x:hidden;scroll-snap-type:y proximity;-webkit-overflow-scrolling:touch;scroll-behavior:smooth}
+/* #main ES el scroller (100dvh + overflow). SIN scroll-snap-type ni scroll-behavior: en un
+   scroller que no es la ventana, el smooth nativo + snap CONGELAN el scroll programático en
+   Chrome; el enganche y el suave los hace el motor por JS (rAF) escribiendo scrollTop directo. */
+html,body{height:100%!important;min-height:0!important;overflow:hidden!important;margin:0!important}
+main#main{height:100vh;height:100dvh;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch}
 `;
 
 export const DECK_ENGINE = `
@@ -389,18 +392,18 @@ export const DECK_ENGINE = `
         }
       }
     });
-  }, {root: document.getElementById('main'), threshold:[0.15,0.5,0.75]});
+  }, {threshold:[0.15,0.5,0.75]});
   sections.forEach(function(s){ io.observe(s); });
 
   /* ---------- PROGRESS BAR ---------- */
   var prog = document.getElementById('progress');
-  var _scroller = document.getElementById('main');
   function onScroll(){
-    var max = _scroller.scrollHeight - _scroller.clientHeight;
-    var p = max>0 ? _scroller.scrollTop/max : 0;
+    var h = document.documentElement;
+    var max = h.scrollHeight - h.clientHeight;
+    var p = max>0 ? (h.scrollTop||document.body.scrollTop)/max : 0;
     prog.style.width = (p*100).toFixed(2)+'%';
   }
-  _scroller.addEventListener('scroll', onScroll, {passive:true});
+  window.addEventListener('scroll', onScroll, {passive:true});
   onScroll();
 
   /* ---------- COUNTERS ---------- */
