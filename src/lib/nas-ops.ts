@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
-import { writeRelBuffer, readBuffer } from "@/lib/storage";
+import { writeRelBuffer, readBuffer, absPath } from "@/lib/storage";
 import { optimizeToWebp } from "@/lib/image";
 import { posterDeVideo, puedeHacerPoster } from "@/lib/video-poster";
 
@@ -345,6 +345,43 @@ export function opsPosterRel(rel: string): string {
 // Miniatura webp de una imagen de la share. Clave de caché = sha1(ruta) + mtime + tamaño: si
 // el archivo cambia por el Finder, la clave cambia y se regenera. maxEdge 640 para las listas;
 // 1600 para «Ver» la imagen (mismo trato que la preview de los archivos locales).
+// Poda del caché de miniaturas OPS (storage interno `ops-cache/`). Sin esto crecía sin freno: un
+// set son miles de fotos × 2 tamaños, y cada re-edición en el Finder (mtime nuevo) deja huérfana la
+// clave anterior → en meses llena el disco de la app. Mismo patrón que video-poster: LRU por atime,
+// tope por bytes, y solo cada N escrituras (no en cada miniatura).
+const OPS_CACHE_TOPE_BYTES = 3 * 1024 * 1024 * 1024; // 3 GB
+const OPS_PODA_CADA = 200;
+let opsDesdeUltimaPoda = 0;
+async function podarOpsCache(): Promise<void> {
+  if (++opsDesdeUltimaPoda < OPS_PODA_CADA) return;
+  opsDesdeUltimaPoda = 0;
+  try {
+    const dir = absPath("ops-cache");
+    const nombres = await fs.readdir(dir).catch(() => [] as string[]);
+    const items: { ruta: string; size: number; atimeMs: number }[] = [];
+    for (const n of nombres) {
+      if (!n.endsWith(".webp")) continue;
+      const ruta = path.join(dir, n);
+      try {
+        const st = await fs.stat(ruta);
+        items.push({ ruta, size: st.size, atimeMs: st.atimeMs });
+      } catch {
+        /* desapareció entre readdir y stat */
+      }
+    }
+    let total = items.reduce((s, e) => s + e.size, 0);
+    if (total <= OPS_CACHE_TOPE_BYTES) return;
+    items.sort((a, b) => a.atimeMs - b.atimeMs); // el menos mirado, primero
+    for (const e of items) {
+      if (total <= OPS_CACHE_TOPE_BYTES) break;
+      await fs.rm(e.ruta, { force: true }).catch(() => {});
+      total -= e.size;
+    }
+  } catch {
+    /* el caché es un lujo: si la poda falla, la app sigue igual */
+  }
+}
+
 export async function opsThumb(rel: string, maxEdge = 640): Promise<Buffer | null> {
   const norm = normalizeOpsRel(rel);
   // De qué archivo sale la miniatura: de la imagen misma, o del póster que dejó la fábrica si
@@ -377,6 +414,7 @@ export async function opsThumb(rel: string, maxEdge = 640): Promise<Buffer | nul
   const webp = await optimizeToWebp(buf, { maxEdge });
   if (!webp) return null;
   await writeRelBuffer(cacheRel, webp);
+  void podarOpsCache().catch(() => {}); // mantiene el caché acotado sin bloquear la respuesta
   return webp;
 }
 
