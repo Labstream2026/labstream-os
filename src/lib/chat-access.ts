@@ -25,10 +25,19 @@ export function canAccessChannel(
   // canal sea PÚBLICO). Es la puerta que cierra join/explore (que solo miraban isPublic) → sin esto
   // un usuario sin permiso de la sección podía auto-unirse a un grupo público asignado a ella.
   if (channel.section && !sessionHasSectionAccess(channel.section, session)) return false;
-  // PORTAL DEL CLIENTE: SIN chat (decisión 2026-07-19). El cliente ya no entra a ningún canal
-  // —ni al de su proyecto—, no recibe menciones y sus superficies de chat se ocultaron. El canal
-  // del proyecto queda 100% interno del equipo.
-  if (session.role === "cliente") return false;
+  // ── PORTAL DEL CLIENTE (Fase 4, arranque A) ──
+  // El cliente vive en un mundo APARTE: solo alcanza canales de audiencia CLIENT donde participa
+  // —el chat «con cliente» de su proyecto o el canal general del cliente—. NUNCA lo interno.
+  // Se comprueba ANTES de isPublic/miembro a propósito: hoy el cliente figura como MIEMBRO del canal
+  // del proyecto (que es audience=INTERNAL); sin este corte caería en la rama de miembro y lo vería.
+  // Por eso la única llave del cliente es audience==="CLIENT" (y encima, ser de ese proyecto/canal).
+  // Mientras no existan canales CLIENT (hoy: cero en producción) esto no da acceso a nada.
+  if (session.role === "cliente") {
+    if (channel.audience !== "CLIENT") return false;
+    if (channel.project?.leadId === session.id) return true;
+    if (channel.project?.members?.some((m) => m.userId === session.id)) return true;
+    return channel.members.some((m) => m.userId === session.id);
+  }
   if (channel.isPublic) return true;
   if (channel.project?.leadId === session.id) return true;
   if (channel.project?.members?.some((m) => m.userId === session.id)) return true;
