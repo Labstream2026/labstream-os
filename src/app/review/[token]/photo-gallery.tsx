@@ -229,7 +229,13 @@ export function PhotoGallery({
       {coverSrc ? (
         <section className="relative -mt-1 flex min-h-[19rem] items-end overflow-hidden rounded-2xl border border-white/10 md:min-h-[24rem]">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={coverSrc} alt="" className="absolute inset-0 size-full object-cover" />
+          <img
+            src={coverSrc}
+            alt=""
+            onLoad={(e) => { e.currentTarget.style.opacity = "1"; }}
+            style={{ opacity: 0 }}
+            className="absolute inset-0 size-full object-cover transition-opacity duration-[900ms] ease-out motion-reduce:transition-none motion-reduce:!opacity-100"
+          />
           <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/25 to-black/20" />
           <div className="relative flex w-full flex-wrap items-end gap-4 p-6 md:p-8">
             <div className="min-w-0 flex-1">
