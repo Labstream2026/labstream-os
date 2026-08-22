@@ -348,6 +348,15 @@ body.t-light .blogo-dark{display:block}
 body.t-light #navprev,body.t-light #navnext{border-color:rgba(0,0,0,.16);background:rgba(255,255,255,.6);color:var(--t-on-light)}
 @media(max-width:560px){#navprev,#navnext{right:12px;width:42px;height:42px}#navprev{bottom:74px}#navnext{bottom:20px}}
 @media(prefers-reduced-motion:reduce){#navprev,#navnext{transition:none}}
+
+/* ── Contenedor de scroll ── La app (root layout) hace de <body> el scroller y fija <html> a la
+   altura del viewport, lo que congela el scroll PROGRAMÁTICO (scrollIntoView/scrollTo) del deck.
+   Solución autocontenida: #main ES el scroller (100dvh + overflow), así scrollIntoView (flechas,
+   rueda, puntos) y el enganche de diapositivas funcionan sin pelear con html/body. La cromática
+   fija (#progress/#topbar/#dots/flechas) queda respecto al viewport, que #main llena. Va al final
+   para ganar la cascada; solo afecta a las páginas del deck (el <style> es de página). */
+html,body{margin:0!important}
+main#main{height:100vh;height:100dvh;overflow-y:auto;overflow-x:hidden;scroll-snap-type:y proximity;-webkit-overflow-scrolling:touch;scroll-behavior:smooth}
 `;
 
 export const DECK_ENGINE = `
@@ -380,18 +389,18 @@ export const DECK_ENGINE = `
         }
       }
     });
-  }, {threshold:[0.15,0.5,0.75]});
+  }, {root: document.getElementById('main'), threshold:[0.15,0.5,0.75]});
   sections.forEach(function(s){ io.observe(s); });
 
   /* ---------- PROGRESS BAR ---------- */
   var prog = document.getElementById('progress');
+  var _scroller = document.getElementById('main');
   function onScroll(){
-    var h = document.documentElement;
-    var max = h.scrollHeight - h.clientHeight;
-    var p = max>0 ? (h.scrollTop||document.body.scrollTop)/max : 0;
+    var max = _scroller.scrollHeight - _scroller.clientHeight;
+    var p = max>0 ? _scroller.scrollTop/max : 0;
     prog.style.width = (p*100).toFixed(2)+'%';
   }
-  window.addEventListener('scroll', onScroll, {passive:true});
+  _scroller.addEventListener('scroll', onScroll, {passive:true});
   onScroll();
 
   /* ---------- COUNTERS ---------- */
